@@ -1,0 +1,56 @@
+.custom-user-directory-wrap {
+    margin-bottom: 20px;
+}
+
+.cud-filters-form p {
+    margin-bottom: 15px;
+}
+
+.cud-filters-form label {
+    display: inline-block;
+    margin-right: 5px;
+    font-weight: bold;
+}
+
+.cud-filters-form input[type="text"] {
+    margin-right: 15px;
+    padding: 5px;
+}
+
+.cud-filters-form .button {
+    padding: 5px 15px;
+}
+
+/* Use WordPress standard table classes if possible, but add some spacing */
+.custom-user-directory-wrap .wp-list-table {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.custom-user-directory-wrap .wp-list-table th,
+.custom-user-directory-wrap .wp-list-table td {
+    padding: 8px;
+}
+
+.cud-pagination {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.cud-pagination .page-numbers {
+    display: inline-block;
+    padding: 5px 10px;
+    margin: 0 2px;
+    border: 1px solid #ccc;
+    text-decoration: none;
+}
+
+.cud-pagination .page-numbers.current,
+.cud-pagination .page-numbers:hover {
+    background-color: #f0f0f0;
+}
+
+.cud-pagination .prev,
+.cud-pagination .next {
+    font-weight: bold;
+}
