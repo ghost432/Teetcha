@@ -89,10 +89,11 @@
                         form.hide(); // Hide the form.
                         // Display success message (provided by server) before the form.
                         form.before('<div class="notice-message notice-success" style="padding:10px; margin-bottom:10px; border:1px solid green; color:green;">' + response.data.message + '</div>');
-                        form[0].reset(); // Reset all form fields.
+                        form[0].reset(); // Reset all form fields, including textarea and radio buttons.
                         // Ensure conditional sections are hidden after reset.
                         $('#nettmob_kyc_details_container').hide();
                         $('#nettmob_app_download_details_container').hide();
+                        // For star ratings, form[0].reset() unchecks the radio. CSS handles the visual update.
                     } else {
                         // On error reported by server (e.g., validation, nonce failure):
                         // Display error message (provided by server) at the top of the form.

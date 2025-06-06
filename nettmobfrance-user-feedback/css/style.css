@@ -174,3 +174,47 @@
     border: 1px solid #d9534f; /* Red border */
     color: #a94442; /* Dark red text */
 }
+
+/* Star Rating Styles */
+.form-field-stars {
+    margin-bottom: 15px; /* Consistent spacing with other form fields */
+}
+
+.form-field-stars label { /* This is the main label for the star group */
+    display: block;
+    margin-bottom: 5px; /* Space between the main label and the stars */
+    font-weight: bold;
+    font-size: 14px;
+    color: #555;
+}
+
+.star-rating-input {
+    display: inline-block; /* Allow it to sit naturally in the form flow */
+    direction: rtl; /* Reverse direction for sibling selectors to work as expected for highlighting */
+    unicode-bidi: bidi-override; /* Needed for direction rtl to affect inline-block elements correctly */
+    text-align: left; /* Counteract the rtl for text inside labels if any, though stars are usually glyphs */
+}
+
+.star-rating-input input[type="radio"] {
+    display: none; /* Hide the actual radio buttons */
+}
+
+.star-rating-input label { /* These are the labels styled as stars */
+    font-size: 2em;     /* Adjust size of the star character */
+    color: #ccc;        /* Default (unselected) star color */
+    cursor: pointer;
+    padding: 0 0.05em;   /* Slight spacing between stars */
+    display: inline-block; /* Make labels sit in a row */
+    transition: color 0.2s ease-in-out; /* Smooth color transition */
+}
+
+/* Hover effect: Highlight stars from the hovered one to the "first" (rightmost due to rtl) */
+.star-rating-input label:hover,
+.star-rating-input label:hover ~ label { /* ~ general sibling combinator */
+    color: #ffdd00; /* Star color on hover */
+}
+
+/* Selected state: Keep stars highlighted from the selected one to the "first" */
+.star-rating-input input[type="radio"]:checked ~ label {
+    color: #ffcc00; /* Star color when selected (slightly different from hover if desired) */
+}
