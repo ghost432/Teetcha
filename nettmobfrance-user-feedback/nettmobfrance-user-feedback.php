@@ -95,9 +95,66 @@ function nuf_enqueue_scripts() {
         'page_on_front'   => get_option('page_on_front', 0), // ID of the page set as front page
         'cookie_name'     => 'nettmob_feedback_submitted', // Main submission cookie
         'popup_close_cookie_name' => 'nettmob_feedback_popup_closed_temp', // Temporary dismissal cookie
+        'user_has_submitted' => false, // Default for guests or if meta not found
+        'debug_mode'      => defined('WP_DEBUG') && WP_DEBUG
+    ));
+
+    // Check user meta for submission, only if user is logged in
+    $current_user_id_for_meta = get_current_user_id();
+    $user_has_submitted_meta = false;
+    if ($current_user_id_for_meta > 0) {
+        // Optional: Exempt admins from this check
+        // if (!current_user_can('manage_options')) {
+            $user_has_submitted_meta = (bool) get_user_meta($current_user_id_for_meta, 'nettmob_feedback_submitted_by_user', true);
+        // }
+    }
+    // Re-localize or add variable. Since wp_localize_script was already called,
+    // we need to ensure this is added correctly. The best way is to include it in the initial array.
+    // So, I'll adjust the above wp_localize_script call.
+}
+// Adjusted nuf_enqueue_scripts to include user_has_submitted correctly
+function nuf_enqueue_scripts() {
+    // Enqueue main plugin stylesheet for the frontend.
+    wp_enqueue_style( 'nuf-style', NUF_PLUGIN_URL . 'css/style.css', array(), '1.0.1', 'all' ); // Incremented style version
+
+    // Enqueue main plugin script for the frontend.
+    wp_enqueue_script( 'nuf-script', NUF_PLUGIN_URL . 'js/script.js', array( 'jquery' ), '1.0.1', true ); // Incremented script version
+
+    $current_page_id = 0;
+    if (is_singular() || is_page() || is_single()) {
+        $current_page_id = get_the_ID();
+    } elseif (is_front_page()) {
+         $current_page_id = get_option('page_on_front', 0);
+    }
+
+    $current_user_id_for_meta = get_current_user_id();
+    $user_has_submitted_from_meta = false;
+    if ($current_user_id_for_meta > 0) {
+        // Optional: Exempt admins by uncommenting the condition below
+        // if (!current_user_can('manage_options')) {
+            $user_has_submitted_from_meta = (bool) get_user_meta($current_user_id_for_meta, 'nettmob_feedback_submitted_by_user', true);
+        // }
+    }
+
+    wp_localize_script( 'nuf-script', 'nettmob_feedback_ajax', array(
+        'ajax_url'        => admin_url( 'admin-ajax.php' ),
+        'nonce'           => wp_create_nonce( 'nettmob_feedback_nonce_action' ),
+        'popup_enabled'   => get_option('nettmob_popup_enabled', 0),
+        'popup_pages'     => get_option('nettmob_popup_pages', 'none'), // Changed from array() to 'none' for single select
+        'cookie_lifetime' => get_option('nettmob_popup_cookie_lifetime', 30),
+        'current_page_id' => (string)$current_page_id,
+        'is_front_page'   => is_front_page(),
+        'page_on_front'   => (string)get_option('page_on_front', '0'), // Ensure string for JS
+        'cookie_name'     => 'nettmob_feedback_submitted',
+        'popup_close_cookie_name' => 'nettmob_feedback_popup_closed_temp',
+        'user_has_submitted' => $user_has_submitted_from_meta, // This is the new variable
+        'i18n_already_submitted' => __('You have already submitted feedback.', 'nettmobfrance-user-feedback'),
         'debug_mode'      => defined('WP_DEBUG') && WP_DEBUG
     ));
 }
+// Remove the old action hook before adding the new one to ensure no duplication if this runs multiple times.
+// This is generally good practice if a function is redefined.
+remove_action( 'wp_enqueue_scripts', 'nuf_enqueue_scripts' ); // Remove previous hook if any
 add_action( 'wp_enqueue_scripts', 'nuf_enqueue_scripts' );
 
 /**
@@ -709,6 +766,14 @@ function nettmob_handle_ajax_submission() {
 
     $mailed = wp_mail( $recipient_email, $subject, $email_body, $headers );
 
+    // After successful DB insertion and email attempt, set user meta for logged-in users
+    if ($inserted) { // Ensure data was actually inserted
+        $user_id = get_current_user_id();
+        if ($user_id > 0) {
+            update_user_meta($user_id, 'nettmob_feedback_submitted_by_user', true);
+        }
+    }
+
     if ( $mailed ) {
         // If email sent successfully.
         wp_send_json_success( array( 'message' => __( 'Merci de votre avis! &#x1F60A;', 'nettmobfrance-user-feedback' ) ) );
@@ -906,5 +971,30 @@ function nuf_display_admin_notices() {
     }
 }
 add_action('admin_notices', 'nuf_display_admin_notices');
+
+/**
+ * Shortcode to output a trigger element (e.g., a button or link) that opens the feedback form as a modal.
+ *
+ * Usage: [nettmob_feedback_popup_trigger text="Give Feedback" class="my-custom-class"]
+ *
+ * @param array $atts Shortcode attributes.
+ * @return string HTML for the trigger element.
+ */
+function nettmob_feedback_popup_trigger_shortcode($atts) {
+    $atts = shortcode_atts(array(
+        'text'  => __('Open Feedback Form', 'nettmobfrance-user-feedback'), // Default button text
+        'class' => 'button nuf-popup-trigger-shortcode-default', // Default class for styling
+    ), $atts, 'nettmob_feedback_popup_trigger');
+
+    $text = sanitize_text_field($atts['text']);
+    $class = esc_attr($atts['class']);
+
+    // The main form container HTML (#nettmob-feedback-form-container) is assumed to be available,
+    // typically added via wp_footer by nettmob_add_feedback_button_and_form_container().
+    // This shortcode just creates a trigger.
+
+    return '<a href="#" class="nuf-popup-trigger-shortcode ' . $class . '">' . esc_html($text) . '</a>';
+}
+add_shortcode('nettmob_feedback_popup_trigger', 'nettmob_feedback_popup_trigger_shortcode');
 
 ?>
