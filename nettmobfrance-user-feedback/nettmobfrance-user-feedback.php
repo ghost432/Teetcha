@@ -3,7 +3,7 @@
  * Plugin Name: NettmobFrance User Feedback
  * Plugin URI: https://www.nettmob.fr
  * Description: A simple plugin to collect user feedback via a floating button and form, and view submissions in the admin area.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: NettmobFrance
  * Author URI: https://nettmobfrance.fr
  * License: GPL2
