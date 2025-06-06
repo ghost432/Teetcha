@@ -38,7 +38,6 @@ function nettmob_create_feedback_table() {
         user_email VARCHAR(255) NULL,
         mission_notifications VARCHAR(10) NOT NULL,
         notification_suggestions TEXT NULL,
-        receive_general_notifications VARCHAR(10) NULL,
         kyc_difficulties VARCHAR(10) NOT NULL,
         kyc_details TEXT NULL,
         receive_sms VARCHAR(10) NOT NULL,
@@ -48,6 +47,7 @@ function nettmob_create_feedback_table() {
         app_download_details TEXT NULL,
         platform_feedback TEXT NULL,
         platform_rating TINYINT UNSIGNED NULL,
+        user_agent TEXT NULL,
         PRIMARY KEY  (id)
     ) $charset_collate;";
 
@@ -92,6 +92,7 @@ function nuf_enqueue_scripts() {
         'cookie_lifetime' => get_option('nettmob_popup_cookie_lifetime', 30), // Days
         'current_page_id' => (string)$current_page_id,
         'is_front_page'   => is_front_page(),
+        'page_on_front'   => get_option('page_on_front', 0), // ID of the page set as front page
         'cookie_name'     => 'nettmob_feedback_submitted', // Main submission cookie
         'popup_close_cookie_name' => 'nettmob_feedback_popup_closed_temp', // Temporary dismissal cookie
         'debug_mode'      => defined('WP_DEBUG') && WP_DEBUG
@@ -117,15 +118,9 @@ function nettmob_display_feedback_form() {
             <input type="radio" name="nettmob_mission_notifications" value="non"> <?php _e( 'Non', 'nettmobfrance-user-feedback' ); ?>
         </div>
 
-        <div>
+        <div id="nettmob_notification_suggestions_container"> <?php // Added ID for JS targeting ?>
             <label for="nettmob_notification_suggestions"><?php _e( 'Avez-vous des suggestions pour améliorer la façon dont vous recevez les notifications ?', 'nettmobfrance-user-feedback' ); ?></label><br />
-            <textarea name="nettmob_notification_suggestions"></textarea>
-        </div>
-
-        <div>
-            <label><?php _e('Recevez-vous des notifications de notre part ?', 'nettmobfrance-user-feedback'); ?></label><br />
-            <label style="display: inline-block; margin-right: 10px;"><input type="radio" name="nettmob_receive_general_notifications" value="yes" required /> <?php _e('Yes', 'nettmobfrance-user-feedback'); ?></label>
-            <label style="display: inline-block;"><input type="radio" name="nettmob_receive_general_notifications" value="no" /> <?php _e('No', 'nettmobfrance-user-feedback'); ?></label>
+            <textarea name="nettmob_notification_suggestions" id="nettmob_notification_suggestions"></textarea> <?php // Added ID to textarea for consistency, though not strictly needed for this logic ?>
         </div>
 
         <div>
@@ -379,10 +374,18 @@ function nettmob_popup_section_callback() {
  * @return array Sanitized array of page IDs, or an empty array if input is invalid.
  */
 function nettmob_sanitize_popup_pages($input) {
-    if (is_array($input)) {
-        return array_map('absint', $input);
+    $allowed_values = array('none', 'all'); // Allowed string keywords
+    if (in_array($input, $allowed_values, true)) {
+        return $input;
     }
-    return array();
+    // If it's not 'none' or 'all', assume it's a page ID and sanitize as integer.
+    // absint will return 0 if $input is not a number or numeric string.
+    // If 0 is returned and input wasn't '0', it indicates an invalid page ID or non-numeric input.
+    $page_id = absint($input);
+    if ($page_id == 0 && $input !== '0') { // '0' could be a valid string page ID in some contexts, but not for WP pages.
+        return 'none'; // Default to 'none' if sanitization results in 0 from a non-'0' input.
+    }
+    return (string)$page_id; // Store page IDs as strings to match 'all'/'none' type, though JS will compare.
 }
 
 /**
@@ -416,26 +419,24 @@ function nettmob_popup_enabled_callback() {
  * Renders the multi-select dropdown for choosing pages for the popup.
  */
 function nettmob_popup_pages_callback() {
-    $selected_pages = get_option('nettmob_popup_pages', array());
-    if (!is_array($selected_pages)) { // Ensure it's an array, especially for older PHP versions or if option was corrupted
-        $selected_pages = array();
-    }
-    $pages = get_pages(); // Retrieves all pages
+    $current_setting = get_option('nettmob_popup_pages', 'none'); // Default to 'none'
+    $pages = get_pages();
 
-    echo "<select multiple='multiple' id='nettmob_popup_pages' name='nettmob_popup_pages[]' style='min-height: 150px; min-width: 250px; background-color: white; border: 1px solid #7e8993;'>";
-
-    // Add an option for "All Pages"
-    echo "<option value='all' " . selected(in_array('all', $selected_pages), true, false) . ">" . esc_html__('All Pages', 'nettmobfrance-user-feedback') . "</option>";
+    echo "<select name='nettmob_popup_pages' id='nettmob_popup_pages' style='min-width: 250px;'>";
+    echo "<option value='none' " . selected($current_setting, 'none', false) . ">" . esc_html__('-- Disabled (No Popup) --', 'nettmobfrance-user-feedback') . "</option>";
+    echo "<option value='all' " . selected($current_setting, 'all', false) . ">" . esc_html__('All Pages', 'nettmobfrance-user-feedback') . "</option>";
 
     if ($pages) {
+        echo "<optgroup label='" . esc_attr__('Specific Pages', 'nettmobfrance-user-feedback') . "'>";
         foreach ($pages as $page) {
-            echo "<option value='" . esc_attr($page->ID) . "' " . selected(in_array((string)$page->ID, $selected_pages, true), true, false) . ">";
+            echo "<option value='" . esc_attr($page->ID) . "' " . selected($current_setting, (string)$page->ID, false) . ">";
             echo esc_html($page->post_title);
             echo "</option>";
         }
+        echo "</optgroup>";
     }
     echo "</select>";
-    echo "<p class='description'>" . esc_html__('Select pages where the popup should appear. Select "All Pages" to show on every page. Use CTRL/CMD (or SHIFT) to select multiple specific pages. If "All Pages" is selected, other selections will be ignored.', 'nettmobfrance-user-feedback') . "</p>";
+    echo "<p class='description'>" . esc_html__('Select where the popup should appear. "Disabled" means no automatic popup. "All Pages" means on every page. Or, choose a specific page.', 'nettmobfrance-user-feedback') . "</p>";
 }
 
 /**
@@ -481,27 +482,27 @@ function nettmob_feedback_admin_page_html() {
             <table class="wp-list-table widefat fixed striped">
                 <thead>
                     <tr>
-                        <th scope="col"><?php _e( 'Date', 'nettmobfrance-user-feedback' ); ?></th>
+                        <th scope="col"><?php _e( 'Submission Date', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'User', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'Mission Notifications', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col" class="nuf-admin-column-suggestion"><?php _e( 'Suggestions', 'nettmobfrance-user-feedback' ); ?></th>
-                        <th scope="col"><?php _e( 'General Notifications Rec.', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'KYC Difficulties', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col" class="nuf-admin-column-details"><?php _e( 'KYC Details', 'nettmobfrance-user-feedback' ); ?></th>
-                        <th scope="col"><?php _e( 'Receives SMS (Old)', 'nettmobfrance-user-feedback' ); ?></th>
+                        <th scope="col"><?php _e( 'Receives SMS', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'Receives Email (Old)', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'Preferred Contact', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'App Problems', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col" class="nuf-admin-column-details"><?php _e( 'App Details', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col" class="nuf-admin-column-suggestion"><?php _e( 'Platform Feedback', 'nettmobfrance-user-feedback' ); ?></th>
                         <th scope="col"><?php _e( 'Platform Rating', 'nettmobfrance-user-feedback' ); ?></th>
+                        <th scope="col"><?php _e( 'Device Info', 'nettmobfrance-user-feedback'); ?></th>
                         <th scope="col"><?php _e( 'Actions', 'nettmobfrance-user-feedback' ); ?></th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ( $results as $row ) : ?>
                         <tr>
-                            <td><?php echo esc_html( date_format( date_create( $row->submission_date ), 'Y/m/d H:i:s' ) ); ?></td>
+                            <td><?php echo esc_html( mysql2date(get_option('date_format') . ' ' . get_option('time_format'), $row->submission_date) ); ?></td>
                             <td>
                                 <?php
                                 if ( $row->user_id ) {
@@ -518,7 +519,6 @@ function nettmob_feedback_admin_page_html() {
                             </td>
                             <td><?php echo esc_html( ucfirst( $row->mission_notifications ) ); ?></td>
                             <td class="nuf-admin-column-suggestion"><?php echo wp_trim_words( esc_html( $row->notification_suggestions ), 15, '...' ); ?></td>
-                            <td><?php echo esc_html( ucfirst( $row->receive_general_notifications ) ); ?></td>
                             <td><?php echo esc_html( ucfirst( $row->kyc_difficulties ) ); ?></td>
                             <td class="nuf-admin-column-details"><?php echo wp_trim_words( esc_html( $row->kyc_details ), 15, '...' ); ?></td>
                             <td><?php echo esc_html( ucfirst( $row->receive_sms ) ); ?></td>
@@ -537,6 +537,9 @@ function nettmob_feedback_admin_page_html() {
                                     echo esc_html__( 'N/A', 'nettmobfrance-user-feedback' );
                                 }
                                 ?>
+                            </td>
+                            <td title="<?php echo esc_attr($row->user_agent); ?>">
+                                <?php echo esc_html(wp_trim_words($row->user_agent, 10, '...')); ?>
                             </td>
                             <td>
                                 <?php
@@ -607,11 +610,8 @@ function nettmob_handle_ajax_submission() {
     $data['notification_suggestions'] = isset($_POST['nettmob_notification_suggestions']) ? sanitize_textarea_field($_POST['nettmob_notification_suggestions']) : null;
     $data['kyc_difficulties'] = isset($_POST['nettmob_kyc_difficulties']) ? sanitize_text_field($_POST['nettmob_kyc_difficulties']) : '';
     $data['kyc_details'] = isset($_POST['nettmob_kyc_details']) ? sanitize_textarea_field($_POST['nettmob_kyc_details']) : null;
-    $data['receive_sms'] = isset($_POST['nettmob_receive_sms']) ? sanitize_text_field($_POST['nettmob_receive_sms']) : ''; // This specific field might become redundant due to general_notifications
-    $data['receive_email'] = isset($_POST['nettmob_receive_email']) ? sanitize_text_field($_POST['nettmob_receive_email']) : ''; // This specific field might become redundant
-
-    // New general notifications field
-    $data['receive_general_notifications'] = isset($_POST['nettmob_receive_general_notifications']) ? sanitize_text_field($_POST['nettmob_receive_general_notifications']) : '';
+    $data['receive_sms'] = isset($_POST['nettmob_receive_sms']) ? sanitize_text_field($_POST['nettmob_receive_sms']) : '';
+    $data['receive_email'] = isset($_POST['nettmob_receive_email']) ? sanitize_text_field($_POST['nettmob_receive_email']) : '';
 
     // Process preferred_contact (now checkboxes)
     $preferred_contact_array = array();
@@ -631,6 +631,10 @@ function nettmob_handle_ajax_submission() {
         $platform_rating = null; // Ensure rating is within 1-5 range, or null.
     }
     $data['platform_rating'] = $platform_rating;
+
+    // Capture User Agent
+    $data['user_agent'] = isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT'])) : '';
+
 
     // `submission_date` is handled by database default (CURRENT_TIMESTAMP).
 
@@ -664,14 +668,14 @@ function nettmob_handle_ajax_submission() {
         'notification_suggestions' => __('Suggestions pour améliorer les notifications :', 'nettmobfrance-user-feedback'),
         'kyc_difficulties' => __('Difficultés à faire le KYC ?', 'nettmobfrance-user-feedback'),
         'kyc_details' => __('Détails KYC :', 'nettmobfrance-user-feedback'),
-        'receive_sms' => __('Ancienne question: Reçoit des SMS ?', 'nettmobfrance-user-feedback'), // Marking as potentially old
-        'receive_email' => __('Ancienne question: Reçoit des emails ?', 'nettmobfrance-user-feedback'), // Marking as potentially old
-        'receive_general_notifications' => __('Recevez-vous des notifications de notre part ?', 'nettmobfrance-user-feedback'),
+        'receive_sms' => __('Reçoit des SMS ?', 'nettmobfrance-user-feedback'),
+        'receive_email' => __('Reçoit des emails ?', 'nettmobfrance-user-feedback'),
         'preferred_contact' => __('Préférence de contact :', 'nettmobfrance-user-feedback'),
         'app_download_problems' => __('Problèmes pour télécharger l\'application ?', 'nettmobfrance-user-feedback'),
         'app_download_details' => __('Détails problèmes application :', 'nettmobfrance-user-feedback'),
         'platform_feedback' => __('Suggestions ou critiques plateforme :', 'nettmobfrance-user-feedback'),
         'platform_rating' => __('Note plateforme et services :', 'nettmobfrance-user-feedback'),
+        'user_agent' => __('Device Info (User Agent):', 'nettmobfrance-user-feedback'),
     );
 
     foreach ($data as $key => $value) {
@@ -758,15 +762,15 @@ function nettmob_update_db_check() {
         $wpdb->query( "ALTER TABLE $table_name ADD platform_rating TINYINT UNSIGNED NULL" );
     }
 
-    // Check for 'receive_general_notifications' column
-    $column_receive_general_notifications = $wpdb->get_results( $wpdb->prepare(
+    // Check if 'receive_general_notifications' column exists and drop it
+    $column_receive_general_notifications_exists = $wpdb->get_results( $wpdb->prepare(
         "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = %s AND column_name = 'receive_general_notifications' AND table_schema = %s",
         $table_name,
         DB_NAME
     ) );
 
-    if ( empty( $column_receive_general_notifications ) ) {
-        $wpdb->query( "ALTER TABLE $table_name ADD receive_general_notifications VARCHAR(10) NULL" );
+    if ( !empty( $column_receive_general_notifications_exists ) ) {
+        $wpdb->query( "ALTER TABLE $table_name DROP COLUMN receive_general_notifications" );
     }
 
     // Check and modify 'preferred_contact' column type if not TEXT
@@ -778,6 +782,17 @@ function nettmob_update_db_check() {
 
     if ( $column_preferred_contact_type && strtolower( $column_preferred_contact_type ) != 'text' ) {
         $wpdb->query( "ALTER TABLE $table_name MODIFY preferred_contact TEXT NULL" );
+    }
+
+    // Check for 'user_agent' column
+    $column_user_agent = $wpdb->get_results( $wpdb->prepare(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = %s AND column_name = 'user_agent' AND table_schema = %s",
+        $table_name,
+        DB_NAME
+    ) );
+
+    if ( empty( $column_user_agent ) ) {
+        $wpdb->query( "ALTER TABLE $table_name ADD user_agent TEXT NULL" );
     }
 }
 add_action( 'admin_init', 'nettmob_update_db_check' );

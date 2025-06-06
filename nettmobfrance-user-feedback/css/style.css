@@ -175,6 +175,11 @@
     color: #a94442; /* Dark red text */
 }
 
+/* Initially hide conditional notification suggestions container */
+#nettmob_notification_suggestions_container {
+    display: none;
+}
+
 /* Modal Popup Styles */
 #nettmob-feedback-form-container.is-modal {
     position: fixed;
@@ -256,20 +261,27 @@
 
 .star-rating-input label { /* These are the labels styled as stars */
     font-size: 2em;     /* Adjust size of the star character */
-    color: #ccc;        /* Default (unselected) star color */
+    color: white;       /* Default star fill color */
+    -webkit-text-stroke: 1px black; /* Black border for Webkit */
+    text-stroke: 1px black;         /* Standard black border */
+    paint-order: stroke fill;       /* Prefer stroke to be drawn before fill */
     cursor: pointer;
     padding: 0 0.05em;   /* Slight spacing between stars */
     display: inline-block; /* Make labels sit in a row */
-    transition: color 0.2s ease-in-out; /* Smooth color transition */
+    transition: color 0.2s ease-in-out, -webkit-text-stroke-color 0.2s ease-in-out, text-stroke-color 0.2s ease-in-out; /* Smooth color transition for fill and stroke */
 }
 
 /* Hover effect: Highlight stars from the hovered one to the "first" (rightmost due to rtl) */
 .star-rating-input label:hover,
 .star-rating-input label:hover ~ label { /* ~ general sibling combinator */
-    color: #ffdd00; /* Star color on hover */
+    color: #ffd700; /* Gold/yellow fill on hover */
+    -webkit-text-stroke-color: #ffd700; /* Gold/yellow border on hover for Webkit */
+    text-stroke-color: #ffd700;         /* Gold/yellow border on hover */
 }
 
 /* Selected state: Keep stars highlighted from the selected one to the "first" */
 .star-rating-input input[type="radio"]:checked ~ label {
-    color: #ffcc00; /* Star color when selected (slightly different from hover if desired) */
+    color: #ffd700; /* Gold/yellow fill when selected */
+    -webkit-text-stroke-color: #ffd700; /* Gold/yellow border when selected for Webkit */
+    text-stroke-color: #ffd700;         /* Gold/yellow border when selected */
 }
