@@ -3,7 +3,7 @@
  * Plugin Name: NettmobFrance User Feedback
  * Plugin URI: https://www.nettmob.fr
  * Description: A simple plugin to collect user feedback via a floating button and form, and view submissions in the admin area.
- * Version: 1.0.2
+ * Version: 1.0.3
  * Author: NettmobFrance
  * Author URI: https://nettmobfrance.fr
  * License: GPL2
@@ -56,62 +56,6 @@ function nettmob_create_feedback_table() {
 }
 register_activation_hook( __FILE__, 'nettmob_create_feedback_table' );
 
-/**
- * Enqueues scripts and styles for the plugin.
- *
- * - Frontend styles for the button and form.
- * - Frontend JavaScript for form toggling and AJAX submission.
- * - Localizes script to pass AJAX URL and nonce to JavaScript.
- *
- * Hooked to `wp_enqueue_scripts`.
- */
-function nuf_enqueue_scripts() {
-    // Enqueue main plugin stylesheet for the frontend.
-    wp_enqueue_style( 'nuf-style', NUF_PLUGIN_URL . 'css/style.css', array(), '1.0.0', 'all' );
-
-    // Enqueue main plugin script for the frontend.
-    wp_enqueue_script( 'nuf-script', NUF_PLUGIN_URL . 'js/script.js', array( 'jquery' ), '1.0.0', true );
-
-    // Pass data to JavaScript: AJAX URL for submissions and a nonce for security.
-    $current_page_id = 0;
-    if (is_singular() || is_page() || is_single()) {
-        $current_page_id = get_the_ID();
-    } elseif (is_front_page()) {
-         $current_page_id = get_option('page_on_front', 0); // Get ID of static front page, or 0 if posts page
-         // If page_on_front is 0, it means the front page displays latest posts.
-         // We might use a special string like 'front_posts' if we want to target this specifically in JS.
-         // For now, if it's 0, it won't match specific page IDs, only 'all'.
-    }
-
-
-    wp_localize_script( 'nuf-script', 'nettmob_feedback_ajax', array(
-        'ajax_url'        => admin_url( 'admin-ajax.php' ),
-        'nonce'           => wp_create_nonce( 'nettmob_feedback_nonce_action' ),
-        'popup_enabled'   => get_option('nettmob_popup_enabled', 0), // Ensure it's '0' or '1' from DB
-        'popup_pages'     => get_option('nettmob_popup_pages', array()), // Array of page IDs or ['all']
-        'cookie_lifetime' => get_option('nettmob_popup_cookie_lifetime', 30), // Days
-        'current_page_id' => (string)$current_page_id,
-        'is_front_page'   => is_front_page(),
-        'page_on_front'   => get_option('page_on_front', 0), // ID of the page set as front page
-        'cookie_name'     => 'nettmob_feedback_submitted', // Main submission cookie
-        'popup_close_cookie_name' => 'nettmob_feedback_popup_closed_temp', // Temporary dismissal cookie
-        'user_has_submitted' => false, // Default for guests or if meta not found
-        'debug_mode'      => defined('WP_DEBUG') && WP_DEBUG
-    ));
-
-    // Check user meta for submission, only if user is logged in
-    $current_user_id_for_meta = get_current_user_id();
-    $user_has_submitted_meta = false;
-    if ($current_user_id_for_meta > 0) {
-        // Optional: Exempt admins from this check
-        // if (!current_user_can('manage_options')) {
-            $user_has_submitted_meta = (bool) get_user_meta($current_user_id_for_meta, 'nettmob_feedback_submitted_by_user', true);
-        // }
-    }
-    // Re-localize or add variable. Since wp_localize_script was already called,
-    // we need to ensure this is added correctly. The best way is to include it in the initial array.
-    // So, I'll adjust the above wp_localize_script call.
-}
 // Adjusted nuf_enqueue_scripts to include user_has_submitted correctly
 function nuf_enqueue_scripts() {
     // Enqueue main plugin stylesheet for the frontend.
