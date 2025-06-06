@@ -607,8 +607,8 @@ function nettmob_feedback_admin_page_html() {
                                 ), admin_url('admin.php?page=nettmob-user-feedback')); // Assumes 'nettmob-user-feedback' is the page slug
                                 ?>
                                 <a href="<?php echo esc_url($delete_link); ?>" class="button button-link-delete"
-                                   onclick="return confirm('<?php echo esc_js(__('Are you sure you want to delete this feedback entry?', 'nettmobfrance-user-feedback')); ?>');">
-                                   <?php _e('Delete', 'nettmobfrance-user-feedback'); ?>
+                                   onclick="return confirm('<?php echo esc_js(__('Are you sure you want to permanently delete this feedback entry? This action cannot be undone.', 'nettmobfrance-user-feedback')); ?>');">
+                                   <?php _e('Delete Permanently', 'nettmobfrance-user-feedback'); ?>
                                 </a>
                             </td>
                         </tr>
