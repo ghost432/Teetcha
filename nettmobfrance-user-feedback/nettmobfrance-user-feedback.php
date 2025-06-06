@@ -11,18 +11,11 @@
  * Domain Path: /languages
  */
 
-// If this file is called directly, abort.
-if ( ! defined( 'WPINC' ) ) {
-    die;
-}
+if ( ! defined( 'WPINC' ) ) die;
 
-// Define plugin path and URL constants for easy access.
 define( 'NUF_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 define( 'NUF_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
-/**
- * Creates the custom database table for feedback submissions on plugin activation.
- */
 function nettmob_create_feedback_table() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'nettmob_feedback_submissions';
@@ -52,9 +45,6 @@ function nettmob_create_feedback_table() {
 }
 register_activation_hook( __FILE__, 'nettmob_create_feedback_table' );
 
-/**
- * Enqueues scripts and styles for the plugin.
- */
 function nuf_enqueue_scripts() {
     $plugin_data = get_plugin_data( __FILE__ );
     $plugin_version = $plugin_data['Version'] ? $plugin_data['Version'] : '1.1.0';
@@ -72,31 +62,11 @@ function nuf_enqueue_scripts() {
     $current_user_id = get_current_user_id();
     $user_has_submitted = false;
     if ($current_user_id > 0) {
-        // if (!current_user_can('manage_options')) { // Optional: exempt admins
-            $user_has_submitted = (bool) get_user_meta($current_user_id, 'nettmob_feedback_submitted_by_user', true);
-        // }
+        $user_has_submitted = (bool) get_user_meta($current_user_id, 'nettmob_feedback_submitted_by_user', true);
     }
-    // Note: For guests, $user_has_submitted remains false here. JS will check the main cookie.
 
-    $direct_display_enabled = (bool) get_option('nettmob_direct_display_enabled', 0);
-    $direct_display_pages_option = get_option('nettmob_direct_display_pages', 'none');
-    $is_direct_display_page = false;
-
-    if ($direct_display_enabled) {
-        $can_show_direct_display = true;
-        if ($user_has_submitted && $current_user_id > 0) {
-             $can_show_direct_display = false;
-        }
-        // For guests, JS will check the main 'nettmob_feedback_submitted' cookie.
-        // $is_direct_display_page can be true here for guests, JS makes final call.
-        if ($can_show_direct_display) {
-            if ($direct_display_pages_option === 'all') {
-                $is_direct_display_page = true;
-            } elseif ($direct_display_pages_option !== 'none' && $current_page_id > 0 && (int)$direct_display_pages_option === $current_page_id) {
-                $is_direct_display_page = true;
-            }
-        }
-    }
+    // Note: is_direct_display_page logic was removed as per subtask to remove direct display feature.
+    // All popups are now controlled by "Popup Settings".
 
     wp_localize_script( 'nuf-script', 'nettmob_feedback_ajax', array(
         'ajax_url'        => admin_url( 'admin-ajax.php' ),
@@ -111,58 +81,15 @@ function nuf_enqueue_scripts() {
         'popup_close_cookie_name' => 'nettmob_feedback_popup_closed_temp',
         'user_has_submitted' => $user_has_submitted,
         'i18n_already_submitted' => __('You have already submitted feedback.', 'nettmobfrance-user-feedback'),
-        'is_direct_display_page' => $is_direct_display_page,
+        // 'is_direct_display_page' => false, // Ensure this is removed or set to false
         'button_clicked_session_cookie_name' => 'nettmob_button_clicked_session',
         'debug_mode'      => defined('WP_DEBUG') && WP_DEBUG
     ));
 }
 add_action( 'wp_enqueue_scripts', 'nuf_enqueue_scripts' );
 
+// Removed nuf_add_body_classes function and its filter as it was for direct display
 
-/**
- * Adds custom classes to the body tag.
- */
-function nuf_add_body_classes($classes) {
-    $user_has_submitted_for_body_class = false;
-    if (is_user_logged_in()) {
-        $user_has_submitted_for_body_class = (bool) get_user_meta(get_current_user_id(), 'nettmob_feedback_submitted_by_user', true);
-    } else {
-        // Check cookie for guests
-        if (isset($_COOKIE['nettmob_feedback_submitted'])) {
-            $user_has_submitted_for_body_class = true;
-        }
-    }
-
-    $direct_display_enabled_for_body = (bool) get_option('nettmob_direct_display_enabled', 0);
-    $direct_display_pages_option_for_body = get_option('nettmob_direct_display_pages', 'none');
-    $is_direct_display_page_for_body_class = false;
-
-    if ($direct_display_enabled_for_body && !$user_has_submitted_for_body_class) {
-        $current_page_id_for_body_class = 0;
-        if (is_singular() || is_page() || is_single()) {
-            $current_page_id_for_body_class = get_the_ID();
-        } elseif (is_front_page()) {
-            $current_page_id_for_body_class = (int) get_option('page_on_front', 0);
-        }
-
-        if ($direct_display_pages_option_for_body === 'all') {
-            $is_direct_display_page_for_body_class = true;
-        } elseif ($direct_display_pages_option_for_body !== 'none' && $current_page_id_for_body_class > 0 && (int)$direct_display_pages_option_for_body === $current_page_id_for_body_class) {
-            $is_direct_display_page_for_body_class = true;
-        }
-    }
-
-    if ($is_direct_display_page_for_body_class) {
-        $classes[] = 'nuf-direct-display-on-page';
-    }
-    return $classes;
-}
-add_filter('body_class', 'nuf_add_body_classes');
-
-
-/**
- * Generates the HTML for the feedback form.
- */
 function nettmob_display_feedback_form() {
     ob_start();
     ?>
@@ -232,62 +159,16 @@ function nettmob_display_feedback_form() {
     <?php
     return ob_get_clean();
 }
-
-/**
- * Registers a shortcode [nettmob_feedback_form] to display the feedback form.
- */
-function nettmob_feedback_form_shortcode() {
-    return nettmob_display_feedback_form();
-}
 add_shortcode( 'nettmob_feedback_form', 'nettmob_feedback_form_shortcode' );
 
-/**
- * Adds the feedback button and form container to the website footer.
- */
 function nettmob_add_feedback_button_and_form_container() {
     $logo_url = get_option( 'nettmob_feedback_logo_url', '' );
-
-    $user_id_for_direct_display = get_current_user_id();
-    $user_has_submitted_for_direct_display = false;
-    if ($user_id_for_direct_display > 0) {
-        $user_has_submitted_for_direct_display = (bool) get_user_meta($user_id_for_direct_display, 'nettmob_feedback_submitted_by_user', true);
-    } else {
-        if (isset($_COOKIE['nettmob_feedback_submitted'])) {
-            $user_has_submitted_for_direct_display = true;
-        }
-    }
-
-    $direct_display_enabled = (bool) get_option('nettmob_direct_display_enabled', 0);
-    $direct_display_pages_option = get_option('nettmob_direct_display_pages', 'none');
-    $is_direct_display_page = false;
-
-    if ($direct_display_enabled && !$user_has_submitted_for_direct_display) {
-        $current_page_id_for_button = 0;
-         if (is_singular() || is_page() || is_single()) {
-            $current_page_id_for_button = get_the_ID();
-        } elseif (is_front_page()) {
-            $current_page_id_for_button = (int) get_option('page_on_front', 0);
-        }
-
-        if ($direct_display_pages_option === 'all') {
-            $is_direct_display_page = true;
-        } elseif ($direct_display_pages_option !== 'none' && $current_page_id_for_button > 0 && (int)$direct_display_pages_option === $current_page_id_for_button) {
-            $is_direct_display_page = true;
-        }
-    }
-
-    $container_style = 'display: none;';
-    $container_classes = '';
-
-    if ($is_direct_display_page) {
-        $container_style = 'display: block;';
-        $container_classes = 'nuf-direct-display-active';
-    }
+    // Direct display PHP logic removed, container defaults to hidden. JS handles visibility.
     ?>
-    <button id="nettmob-feedback-trigger-button" <?php if ($is_direct_display_page) echo 'style="display:none;"'; ?>>
+    <button id="nettmob-feedback-trigger-button" style="display:none;"> <?php // JS will show this if applicable ?>
         <span class="icon">&#128172;</span> <?php _e( 'Nettmob Avis', 'nettmobfrance-user-feedback' ); ?>
     </button>
-    <div id="nettmob-feedback-form-container" class="<?php echo esc_attr($container_classes); ?>" style="<?php echo esc_attr($container_style); ?>">
+    <div id="nettmob-feedback-form-container" style="display: none;">
         <div id="nettmob-feedback-form-inner">
             <button id="nettmob-close-feedback-form">X</button>
             <?php if ( ! empty( $logo_url ) ) : ?>
@@ -303,9 +184,6 @@ function nettmob_add_feedback_button_and_form_container() {
 }
 add_action( 'wp_footer', 'nettmob_add_feedback_button_and_form_container' );
 
-/**
- * Adds the admin menu page for the plugin.
- */
 function nettmob_add_admin_menu() {
     add_menu_page(
         __( 'Nettmob User Feedback', 'nettmobfrance-user-feedback' ),
@@ -319,9 +197,6 @@ function nettmob_add_admin_menu() {
 }
 add_action( 'admin_menu', 'nettmob_add_admin_menu' );
 
-/**
- * Registers plugin settings using the WordPress Settings API.
- */
 function nettmob_register_settings() {
     register_setting(
         'nettmob_feedback_settings_group',
@@ -358,30 +233,17 @@ function nettmob_register_settings() {
     register_setting('nettmob_feedback_settings_group', 'nettmob_popup_enabled');
     register_setting('nettmob_feedback_settings_group', 'nettmob_popup_pages', array('sanitize_callback' => 'nettmob_sanitize_popup_pages', 'default' => 'none'));
     register_setting('nettmob_feedback_settings_group', 'nettmob_popup_cookie_lifetime', array('type' => 'integer', 'sanitize_callback' => 'absint', 'default' => 30));
-    add_settings_section('nettmob_feedback_popup_section', __( 'Popup Settings', 'nettmobfrance-user-feedback' ), 'nettmob_popup_section_callback', 'nettmob-user-feedback');
-    add_settings_field('nettmob_popup_enabled_field', __( 'Enable Feedback Popup', 'nettmobfrance-user-feedback' ), 'nettmob_popup_enabled_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section');
-    add_settings_field('nettmob_popup_pages_field', __( 'Show Popup on Pages', 'nettmobfrance-user-feedback' ), 'nettmob_popup_pages_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section');
-    add_settings_field('nettmob_popup_cookie_lifetime_field', __( 'Popup Cookie Lifetime', 'nettmobfrance-user-feedback' ), 'nettmob_popup_cookie_lifetime_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section');
-
-    // --- Direct Display Settings ---
-    register_setting('nettmob_feedback_settings_group', 'nettmob_direct_display_enabled');
-    register_setting('nettmob_feedback_settings_group', 'nettmob_direct_display_pages', array('sanitize_callback' => 'nettmob_sanitize_popup_pages', 'default' => 'none'));
-    add_settings_section('nettmob_feedback_direct_display_section', __( 'Direct Form Display Settings (Instead of Popup/Button)', 'nettmobfrance-user-feedback' ), 'nettmob_direct_display_section_callback', 'nettmob-user-feedback');
-    add_settings_field('nettmob_direct_display_enabled_field', __( 'Enable Direct Display on Page', 'nettmobfrance-user-feedback' ), 'nettmob_direct_display_enabled_callback', 'nettmob-user-feedback', 'nettmob_feedback_direct_display_section');
-    add_settings_field('nettmob_direct_display_pages_field', __( 'Show Form Directly on Page(s)', 'nettmobfrance-user-feedback' ), 'nettmob_direct_display_pages_callback', 'nettmob-user-feedback', 'nettmob_feedback_direct_display_section');
+    add_settings_section('nettmob_feedback_popup_section', __( 'Automatic Modal Popup Settings', 'nettmobfrance-user-feedback' ), 'nettmob_popup_section_callback', 'nettmob-user-feedback'); // Clarified title
+    add_settings_field('nettmob_popup_enabled_field', __( 'Enable Automatic Popup', 'nettmobfrance-user-feedback' ), 'nettmob_popup_enabled_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section'); // Clarified title
+    add_settings_field('nettmob_popup_pages_field', __( 'Show Auto Popup on Pages', 'nettmobfrance-user-feedback' ), 'nettmob_popup_pages_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section'); // Clarified title
+    add_settings_field('nettmob_popup_cookie_lifetime_field', __( 'Submission Cookie Lifetime', 'nettmobfrance-user-feedback' ), 'nettmob_popup_cookie_lifetime_callback', 'nettmob-user-feedback', 'nettmob_feedback_popup_section'); // Clarified title
 }
 add_action( 'admin_init', 'nettmob_register_settings' );
 
-/**
- * Callback for the Popup Settings section text.
- */
 function nettmob_popup_section_callback() {
-    echo '<p>' . esc_html__( 'Configure the behavior of the feedback form popup. The popup will display the same form as the floating button but will appear automatically based on these settings if enabled.', 'nettmobfrance-user-feedback' ) . '</p>';
+    echo '<p>' . esc_html__( 'Configure the automatic display of the feedback form as a centered modal popup on selected pages.', 'nettmobfrance-user-feedback' ) . '</p>';
 }
 
-/**
- * Sanitizes the page selection setting (used for both popup and direct display).
- */
 function nettmob_sanitize_popup_pages($input) {
     $allowed_values = array('none', 'all');
     if (in_array($input, $allowed_values, true)) {
@@ -394,41 +256,29 @@ function nettmob_sanitize_popup_pages($input) {
     return (string)$page_id;
 }
 
-/**
- * Renders the input field for the Logo URL setting.
- */
 function nettmob_logo_url_callback() {
     $logo_url = get_option( 'nettmob_feedback_logo_url', '' );
     echo '<input type="url" id="nettmob_feedback_logo_url" name="nettmob_feedback_logo_url" value="' . esc_attr( $logo_url ) . '" class="regular-text">';
     echo '<p class="description">' . __( 'Enter the URL for the logo to display at the top of the feedback form.', 'nettmobfrance-user-feedback' ) . '</p>';
 }
 
-/**
- * Renders the input field for the Recipient Email setting.
- */
 function nettmob_recipient_email_callback() {
     $recipient_email = get_option( 'nettmob_feedback_recipient_email', get_option('admin_email') );
     echo '<input type="email" id="nettmob_feedback_recipient_email" name="nettmob_feedback_recipient_email" value="' . esc_attr( $recipient_email ) . '" class="regular-text">';
     echo '<p class="description">' . __( 'Email address to receive the feedback submissions.', 'nettmobfrance-user-feedback' ) . '</p>';
 }
 
-/**
- * Renders the checkbox for the Enable Popup setting.
- */
 function nettmob_popup_enabled_callback() {
     $option = get_option('nettmob_popup_enabled');
     echo '<input type="checkbox" id="nettmob_popup_enabled" name="nettmob_popup_enabled" value="1" ' . checked( $option, 1, false ) . '>';
-    echo ' <label for="nettmob_popup_enabled">' . esc_html__('Check to enable the automatic feedback popup.', 'nettmobfrance-user-feedback') . '</label>';
+    echo ' <label for="nettmob_popup_enabled" class="description">' . esc_html__('Enable to automatically show the feedback form as a centered modal popup on chosen pages.', 'nettmobfrance-user-feedback') . '</label>';
 }
 
-/**
- * Renders the single-select dropdown for choosing pages for the popup.
- */
 function nettmob_popup_pages_callback() {
     $current_setting = get_option('nettmob_popup_pages', 'none');
     $pages = get_pages();
     echo "<select name='nettmob_popup_pages' id='nettmob_popup_pages' style='min-width: 250px;'>";
-    echo "<option value='none' " . selected($current_setting, 'none', false) . ">" . esc_html__('-- Disabled (No Popup) --', 'nettmobfrance-user-feedback') . "</option>";
+    echo "<option value='none' " . selected($current_setting, 'none', false) . ">" . esc_html__('-- Disabled (No Automatic Popup) --', 'nettmobfrance-user-feedback') . "</option>";
     echo "<option value='all' " . selected($current_setting, 'all', false) . ">" . esc_html__('All Pages', 'nettmobfrance-user-feedback') . "</option>";
     if ($pages) {
         echo "<optgroup label='" . esc_attr__('Specific Pages', 'nettmobfrance-user-feedback') . "'>";
@@ -440,60 +290,16 @@ function nettmob_popup_pages_callback() {
         echo "</optgroup>";
     }
     echo "</select>";
-    echo "<p class='description'>" . esc_html__('Select where the popup should appear. "Disabled" means no automatic popup. "All Pages" means on every page. Or, choose a specific page.', 'nettmobfrance-user-feedback') . "</p>";
+    echo "<p class='description'>" . esc_html__('Select a single page where the centered modal popup should appear automatically, or choose "All Pages" or "Disabled". "Enable Automatic Popup" must be checked.', 'nettmobfrance-user-feedback') . "</p>";
 }
 
-/**
- * Renders the number input for the Popup Cookie Lifetime setting.
- */
 function nettmob_popup_cookie_lifetime_callback() {
     $option = get_option('nettmob_popup_cookie_lifetime', 30);
     echo '<input type="number" id="nettmob_popup_cookie_lifetime" name="nettmob_popup_cookie_lifetime" value="' . esc_attr($option) . '" min="0" class="small-text"> ';
-    echo '<label for="nettmob_popup_cookie_lifetime">' . esc_html__('days (Set to 0 to show always, ignoring cookie).', 'nettmobfrance-user-feedback') . '</label>';
-    echo "<p class='description'>" . esc_html__('After a user submits the feedback form via the popup, a cookie is set to prevent the popup from reappearing. Define its duration here.', 'nettmobfrance-user-feedback') . "</p>";
+    echo '<label for="nettmob_popup_cookie_lifetime">' . esc_html__('days (This is the main submission cookie. Set to 0 to show auto-popup always, until temp dismissed).', 'nettmobfrance-user-feedback') . '</label>'; // Clarified label
+    echo "<p class='description'>" . esc_html__('After a user submits feedback, a cookie is set to prevent auto-popup/button. Define its duration. The temporary dismissal cookie (if popup closed without submit) is 1 day.', 'nettmobfrance-user-feedback') . "</p>"; // Clarified description
 }
 
-/**
- * Callback for the Direct Display Settings section text.
- */
-function nettmob_direct_display_section_callback() {
-    echo '<p>' . esc_html__( 'Configure pages where the feedback form will be displayed directly on page load (without requiring a click, replacing the popup/button logic for those pages).', 'nettmobfrance-user-feedback' ) . '</p>';
-}
-
-/**
- * Renders the checkbox for the Enable Direct Display setting.
- */
-function nettmob_direct_display_enabled_callback() {
-    $option = get_option('nettmob_direct_display_enabled');
-    echo '<input type="checkbox" id="nettmob_direct_display_enabled" name="nettmob_direct_display_enabled" value="1" ' . checked( $option, 1, false ) . '>';
-    echo ' <label for="nettmob_direct_display_enabled" class="description">' . esc_html__('Enable to display the form directly on the selected page(s) below.', 'nettmobfrance-user-feedback') . '</label>';
-}
-
-/**
- * Renders the single-select dropdown for choosing pages for direct display.
- */
-function nettmob_direct_display_pages_callback() {
-    $current_setting = get_option('nettmob_direct_display_pages', 'none');
-    $pages = get_pages();
-    echo "<select name='nettmob_direct_display_pages' id='nettmob_direct_display_pages' style='min-width: 250px;'>";
-    echo "<option value='none' " . selected($current_setting, 'none', false) . ">" . esc_html__('-- Disabled / No specific page --', 'nettmobfrance-user-feedback') . "</option>";
-    echo "<option value='all' " . selected($current_setting, 'all', false) . ">" . esc_html__('All Pages', 'nettmobfrance-user-feedback') . "</option>";
-    if ($pages) {
-        echo "<optgroup label='" . esc_attr__('Specific Pages', 'nettmobfrance-user-feedback') . "'>";
-        foreach ($pages as $page) {
-            echo "<option value='" . esc_attr($page->ID) . "' " . selected($current_setting, (string)$page->ID, false) . ">";
-            echo esc_html($page->post_title);
-            echo "</option>";
-        }
-        echo "</optgroup>";
-    }
-    echo "</select>";
-    echo "<p class='description'>" . esc_html__('Select where the form should be displayed directly. If "Enable Direct Display" is checked, the form will appear on these pages instead of the button/popup.', 'nettmobfrance-user-feedback') . "</p>";
-}
-
-/**
- * Renders the HTML for the admin page (settings and feedback display).
- */
 function nettmob_feedback_admin_page_html() {
     if ( ! current_user_can( 'manage_options' ) ) return;
     ?>
@@ -609,9 +415,6 @@ function nettmob_feedback_admin_page_html() {
     <?php
 }
 
-/**
- * Handles AJAX form submission.
- */
 function nettmob_handle_ajax_submission() {
     check_ajax_referer( 'nettmob_feedback_nonce_action', 'nettmob_feedback_nonce_field' );
     global $wpdb;
@@ -714,17 +517,11 @@ function nettmob_handle_ajax_submission() {
 add_action( 'wp_ajax_nettmob_submit_feedback', 'nettmob_handle_ajax_submission' );
 add_action( 'wp_ajax_nopriv_nettmob_submit_feedback', 'nettmob_handle_ajax_submission' );
 
-/**
- * Loads the plugin text domain for internationalization.
- */
 function nettmob_load_textdomain() {
     load_plugin_textdomain( 'nettmobfrance-user-feedback', false, dirname( plugin_basename( __FILE__ ) ) . '/languages/' );
 }
 add_action( 'plugins_loaded', 'nettmob_load_textdomain' );
 
-/**
- * Checks if database table updates are needed and applies them.
- */
 function nettmob_update_db_check() {
     global $wpdb;
     $table_name = $wpdb->prefix . 'nettmob_feedback_submissions';
@@ -761,9 +558,6 @@ function nettmob_update_db_check() {
 }
 add_action( 'admin_init', 'nettmob_update_db_check' );
 
-/**
- * Shortcode to send a feedback invitation email.
- */
 function nettmob_send_feedback_invitation_shortcode( $atts ) {
     $atts = shortcode_atts( array(
             'email'   => '',
@@ -795,9 +589,6 @@ function nettmob_send_feedback_invitation_shortcode( $atts ) {
 }
 add_shortcode( 'nettmob_send_feedback_invitation', 'nettmob_send_feedback_invitation_shortcode' );
 
-/**
- * Handles the deletion of a feedback submission.
- */
 function nuf_handle_delete_feedback_submission() {
     if (!current_user_can('manage_options')) {
         wp_die(esc_html__('You do not have permission to delete feedback.', 'nettmobfrance-user-feedback'));
@@ -821,9 +612,6 @@ function nuf_handle_delete_feedback_submission() {
 }
 add_action('admin_action_nuf_delete_feedback', 'nuf_handle_delete_feedback_submission');
 
-/**
- * Displays admin notices for feedback deletion.
- */
 function nuf_display_admin_notices() {
     if (get_transient('nuf_admin_notice_feedback_deleted')) {
         echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Feedback entry deleted successfully.', 'nettmobfrance-user-feedback') . '</p></div>';
@@ -836,9 +624,6 @@ function nuf_display_admin_notices() {
 }
 add_action('admin_notices', 'nuf_display_admin_notices');
 
-/**
- * Shortcode to output a trigger element (e.g., a button or link) that opens the feedback form as a modal.
- */
 function nettmob_feedback_popup_trigger_shortcode($atts) {
     $atts = shortcode_atts(array(
         'text'  => __('Open Feedback Form', 'nettmobfrance-user-feedback'),
@@ -850,25 +635,17 @@ function nettmob_feedback_popup_trigger_shortcode($atts) {
 }
 add_shortcode('nettmob_feedback_popup_trigger', 'nettmob_feedback_popup_trigger_shortcode');
 
-/**
- * Shortcode to output a trigger element for Elementor popups (specifically triggers modal).
- *
- * Usage: [nettmob_feedback_elementor_popup text="Give Feedback" class="my-custom-class"]
- *
- * @param array $atts Shortcode attributes.
- * @return string HTML for the trigger element.
- */
 function nettmob_feedback_elementor_popup_shortcode($atts) {
     $atts = shortcode_atts(array(
-        'text'  => __('Open Feedback Form', 'nettmobfrance-user-feedback'), // Default button text
-        'class' => 'button nuf-elementor-popup-trigger-default', // Default class for styling
+        'text'  => __('Open Feedback Form', 'nettmobfrance-user-feedback'),
+        'class' => 'button nuf-elementor-popup-trigger-default',
     ), $atts, 'nettmob_feedback_elementor_popup');
-
     $text = sanitize_text_field($atts['text']);
     $class = esc_attr($atts['class']);
-
     return '<a href="#" class="nuf-elementor-popup-trigger ' . $class . '">' . esc_html($text) . '</a>';
 }
 add_shortcode('nettmob_feedback_elementor_popup', 'nettmob_feedback_elementor_popup_shortcode');
 
 ?>
+
+[end of nettmobfrance-user-feedback/nettmobfrance-user-feedback.php]

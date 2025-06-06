@@ -42,25 +42,13 @@
             window.nettmobFeedbackAlreadyGiven = true;
         }
 
-        window.isDirectDisplayActive = false;
-        if (ajax_vars.is_direct_display_page) {
-            if (ajax_vars.user_has_submitted) {
-                 // Already handled by PHP for logged-in: is_direct_display_page would be false
-                 // This JS variable is more about *activating* direct display if PHP said it's generally eligible for this page
-                 // and then JS confirms no cookie for guest.
-            } else if (getCookie(ajax_vars.cookie_name)) { // Guest cookie check
-                if (ajax_vars.debug_mode) console.log('NUF: Direct display eligible by settings, but guest cookie found. Suppressing.');
-            } else {
-                 window.isDirectDisplayActive = true; // PHP said page is eligible, and user (guest or logged-in) hasn't submitted based on current info
-            }
-        }
-
         var isFloatingButtonClickedSession = !!getCookie(ajax_vars.button_clicked_session_cookie_name);
+        var isAutoPopupActive = false;
 
         if (ajax_vars.debug_mode) {
+            console.log('NUF Initial State ---');
             console.log('NUF Vars:', ajax_vars);
             console.log('NUF: Feedback Already Given Flag:', window.nettmobFeedbackAlreadyGiven);
-            console.log('NUF: Is Direct Display Active Flag (JS final):', window.isDirectDisplayActive);
             console.log('NUF: Is Floating Button Clicked Session:', isFloatingButtonClickedSession);
         }
 
@@ -74,36 +62,25 @@
                 alert(ajax_vars.i18n_already_submitted);
                 return;
             }
-            // If direct display is active, this shortcode click should still open a modal as per requirement E.
-            // So, it effectively overrides direct display for this interaction.
-            $formContainer.removeClass('nuf-direct-display-active nuf-overlay-mode').addClass('nuf-modal-mode').addClass('nuf-is-visible');
+            // These shortcodes always open as a modal
+            $formContainer.removeClass('nuf-overlay-mode').addClass('nuf-modal-mode').addClass('nuf-is-visible');
             $triggerButton.hide();
         });
 
-        // 3. Primary Logic Branching
+        // 3. Primary Logic Branching for initial display state
         if (window.nettmobFeedbackAlreadyGiven) {
-            if (ajax_vars.debug_mode) console.log('NUF: Feedback already given. Hiding trigger button. Form container hidden by default/PHP.');
+            if (ajax_vars.debug_mode) console.log('NUF: Feedback already given. Hiding floating button.');
             $triggerButton.hide();
-        } else if (window.isDirectDisplayActive) {
-            if (ajax_vars.debug_mode) console.log('NUF: Direct display is active. Button hidden by PHP/CSS. Form shown by PHP/CSS.');
-            // $triggerButton.hide(); // PHP should hide it with inline style, or body class does.
-            // $('body').addClass('nuf-direct-display-on-page'); // PHP adds this class
-            // $formContainer.addClass('nuf-direct-display-active').show(); // PHP adds class and style="display:block"
-            // No further JS needed to show form, PHP handles initial state. JS just confirms button hide.
-             $triggerButton.hide(); // Ensure it's hidden if PHP didn't. Body class is primary.
         } else {
-            // Not submitted, Not direct display: Handle auto-popup and floating button visibility
+            // Handle auto-popup and floating button visibility
             var popup_enabled_val = ajax_vars.popup_enabled === '1' || ajax_vars.popup_enabled === 1 || ajax_vars.popup_enabled === true;
-            var show_auto_popup = false;
 
             if (popup_enabled_val) {
-                if (ajax_vars.debug_mode) console.log('NUF: Popup feature enabled.');
+                if (ajax_vars.debug_mode) console.log('NUF: Auto-popup feature is enabled.');
                 var main_cookie_lifetime_val = parseInt(ajax_vars.cookie_lifetime);
                 var temp_popup_cookie = getCookie(ajax_vars.popup_close_cookie_name);
 
-                if (main_cookie_lifetime_val > 0 && temp_popup_cookie) {
-                     if (ajax_vars.debug_mode) console.log('NUF: Temp popup close cookie found. Auto-popup suppressed.');
-                } else {
+                if (!(main_cookie_lifetime_val > 0 && temp_popup_cookie)) {
                     var show_popup_on_this_page = false;
                     var popup_setting = ajax_vars.popup_pages.toString();
                     var current_page_id_str = ajax_vars.current_page_id.toString();
@@ -125,10 +102,11 @@
 
                     if (show_popup_on_this_page) {
                         if (ajax_vars.debug_mode) console.log('NUF: Conditions met for auto-popup. Showing modal.');
-                        $formContainer.removeClass('nuf-direct-display-active nuf-overlay-mode').addClass('nuf-modal-mode').addClass('nuf-is-visible');
-                        show_auto_popup = true;
-                        // $triggerButton.hide(); // Button visibility handled below based on session cookie
+                        $formContainer.removeClass('nuf-overlay-mode').addClass('nuf-modal-mode').addClass('nuf-is-visible');
+                        isAutoPopupActive = true;
                     }
+                } else {
+                     if (ajax_vars.debug_mode) console.log('NUF: Temp popup close cookie found. Auto-popup suppressed for this load.');
                 }
             }
 
@@ -136,32 +114,46 @@
             if (isFloatingButtonClickedSession) {
                 if (ajax_vars.debug_mode) console.log('NUF: Floating button clicked this session. Hiding button.');
                 $triggerButton.hide();
-            } else if (!show_auto_popup) {
+            } else if (!isAutoPopupActive) {
                 if (ajax_vars.debug_mode) console.log('NUF: No auto-popup, no session click. Showing floating button.');
                 $triggerButton.show();
-            } else { // show_auto_popup is true
-                 if (ajax_vars.debug_mode) console.log('NUF: Auto-popup IS showing. Button shown (unless session clicked).');
-                 $triggerButton.show(); // As per spec E: button remains with auto-popup
+            } else { // isAutoPopupActive is true
+                 if (ajax_vars.debug_mode) console.log('NUF: Auto-popup IS showing. Button also shown (as per spec E).');
+                 $triggerButton.show();
             }
         }
 
-        // Event Handlers
+        // --- Event Handlers ---
         $triggerButton.on('click', function(e) {
             e.preventDefault();
-            if (ajax_vars.debug_mode) console.log('NUF: Floating button clicked, showing overlay.');
-            $formContainer.removeClass('nuf-modal-mode nuf-direct-display-active');
-            $formContainer.addClass('nuf-overlay-mode').addClass('nuf-is-visible');
-            setCookie(ajax_vars.button_clicked_session_cookie_name, '1', 0);
-            $triggerButton.hide();
+            if (ajax_vars.debug_mode) console.log('NUF: Floating button clicked, toggling chat window.');
+
+            // If a modal (auto or shortcode) is already visible, ignore button click
+            if ($formContainer.hasClass('nuf-modal-mode') && $formContainer.hasClass('nuf-is-visible')) {
+                if (ajax_vars.debug_mode) console.log('NUF: Floating button clicked, but modal already visible. Ignoring.');
+                return;
+            }
+
+            $formContainer.removeClass('nuf-modal-mode'); // Ensure it's not modal
+
+            var isNowVisible = !$formContainer.is(':visible') || $formContainer.css('opacity') === '0';
+
+            $formContainer.fadeToggle(function() {
+                if (isNowVisible && !getCookie(ajax_vars.button_clicked_session_cookie_name)) {
+                    setCookie(ajax_vars.button_clicked_session_cookie_name, '1', 0);
+                    $triggerButton.hide();
+                    if (ajax_vars.debug_mode) console.log('NUF: Chat window opened, session cookie set, button hidden.');
+                }
+            });
+
             $formContainer.find('.notice-message').remove();
             $form.show();
         });
 
         $('#nettmob-close-feedback-form').on('click', function() {
             var was_modal = $formContainer.hasClass('nuf-modal-mode');
-            // var was_overlay = $formContainer.hasClass('nuf-overlay-mode'); // Not needed for this refined logic
 
-            if (was_modal && !window.isDirectDisplayActive) {
+            if (was_modal) {
                 var main_cookie_lifetime_val = parseInt(ajax_vars.cookie_lifetime);
                 if (main_cookie_lifetime_val > 0) {
                     setCookie(ajax_vars.popup_close_cookie_name, '1', 1);
@@ -171,12 +163,12 @@
                 }
             }
 
-            $formContainer.removeClass('nuf-is-visible');
+            $formContainer.removeClass('nuf-is-visible').hide();
             setTimeout(function(){
-                $formContainer.removeClass('nuf-modal-mode nuf-overlay-mode');
+                $formContainer.removeClass('nuf-modal-mode');
             }, 400);
 
-            if (!window.nettmobFeedbackAlreadyGiven && !window.isDirectDisplayActive && !getCookie(ajax_vars.button_clicked_session_cookie_name)) {
+            if (!window.nettmobFeedbackAlreadyGiven && !getCookie(ajax_vars.button_clicked_session_cookie_name)) {
                 $triggerButton.show();
             }
 
@@ -184,7 +176,7 @@
             $form.show();
         });
 
-        // Conditional Field Logic (remains unchanged)
+        // Conditional Field Logic
         var $missionNotificationsRadios = $('input[name="nettmob_mission_notifications"]');
         var $notificationSuggestionsContainer = $('#nettmob_notification_suggestions_container');
         function toggleNotificationSuggestions() {
@@ -222,7 +214,7 @@
             }, 50);
         });
 
-        // Form Submission (remains unchanged)
+        // Form Submission
         $form.on('submit', function(e) {
             e.preventDefault();
             var currentForm = $(this);

@@ -2,17 +2,17 @@
 
 /* Style for the main trigger button that opens the feedback form */
 #nettmob-feedback-trigger-button {
-    position: fixed; /* Keep it in place during scroll */
+    position: fixed;
     bottom: 20px;
-    left: 20px;
+    left: 20px; /* Or right: 20px; depending on desired default */
     padding: 10px 15px;
-    background-color: #0073aa; /* Standard WordPress blue */
+    background-color: #0073aa;
     color: white;
     border: none;
     border-radius: 5px;
     cursor: pointer;
     font-size: 16px;
-    z-index: 9998;
+    z-index: 99998; /* High, but below form container */
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
@@ -20,44 +20,59 @@
     margin-right: 5px;
 }
 
-/* Style for the feedback form container (base) */
+/* Style for the feedback form container (Chat Window Style) */
 #nettmob-feedback-form-container {
+    display: none; /* Initially hidden, shown by JS */
     position: fixed;
-    bottom: 70px;
-    left: 20px;
-    width: 320px;
-    background-color: #f9f9f9;
+    bottom: 80px; /* Position above the trigger button */
+    left: 20px;   /* Or right: 20px; to match button */
+    width: 350px;
+    background-color: #fff;
     border: 1px solid #ccc;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    z-index: 9999;
-    display: none; /* Initially hidden */
-    padding: 0; /* Padding will be on inner */
-    overflow: hidden; /* Let inner handle scroll */
+    z-index: 99999;
+    /* transition: opacity 0.3s ease, transform 0.3s ease; */ /* Optional for JS animation */
 }
 
-#nettmob-feedback-form-inner {
-    background: #fff;
-    padding: 20px;
-    border-radius: 8px; /* Keep radius if container has no bg and only shadow */
-    max-height: 70vh;
+#nettmob-feedback-form-inner { /* Inner wrapper for padding and scroll */
+    padding: 0; /* Reset padding, header/form/footer will have their own */
+    max-height: calc(80vh - 100px); /* Example: 80% of viewport height minus some offset for button and spacing */
     overflow-y: auto;
-    box-sizing: border-box;
     position: relative; /* For close button positioning */
 }
 
-#nettmob-feedback-form-container h3 {
+/* Optional: Header for logo/title inside the chat window */
+.nuf-form-header {
+    padding: 15px 20px;
+    border-bottom: 1px solid #eee;
+    position: relative; /* For close button if it's inside header */
+}
+#nettmob-feedback-form-container .nuf-form-header h3 { /* Target h3 specifically within header */
     margin-top: 0;
-    margin-bottom: 15px;
+    margin-bottom: 0; /* Adjust if logo is also present */
     font-size: 18px;
     color: #333;
     text-align: center;
 }
 
+/* Form specific padding if header/footer are used */
+#nettmob-feedback-form-container #nettmob-feedback-form {
+    padding: 20px;
+}
+
+/* Optional: Footer for any additional links/buttons */
+.nuf-form-footer {
+    padding: 10px 20px;
+    border-top: 1px solid #eee;
+    text-align: right;
+}
+
+
 #nettmob-close-feedback-form {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    top: 15px; /* Adjust if inside .nuf-form-header, or relative to #nettmob-feedback-form-inner */
+    right: 15px;
     background: #eee;
     border: 1px solid #ccc;
     border-radius: 50%;
@@ -70,20 +85,20 @@
     line-height: 22px;
     text-align: center;
     padding: 0;
-    z-index: 10; /* Ensure it's above form content within inner */
+    z-index: 10;
 }
 #nettmob-close-feedback-form:hover {
     background: #ddd;
     color: #333;
 }
 
-#nettmob-feedback-form div:not(.star-rating-input):not(.form-field-stars) { /* Avoid affecting star rating internal divs */
+/* General form field styling (remains mostly the same) */
+#nettmob-feedback-form div:not(.star-rating-input):not(.form-field-stars) {
     margin-bottom: 15px;
 }
-#nettmob-feedback-form .form-field-stars { /* Add specific margin for this group */
+#nettmob-feedback-form .form-field-stars {
      margin-bottom: 15px;
 }
-
 
 #nettmob-feedback-form label {
     display: block;
@@ -138,13 +153,13 @@
     margin-bottom: 10px;
 }
 
-.nuf-form-logo {
+.nuf-form-logo { /* This might be inside .nuf-form-header or directly in #nettmob-feedback-form-inner */
     text-align: center;
-    margin-bottom: 15px;
+    margin-bottom: 10px; /* Adjust if inside header with h3 */
 }
 
 .nuf-form-logo img {
-    max-height: 60px;
+    max-height: 50px; /* Slightly smaller for chat window header */
     max-width: 100%;
     width: auto;
     height: auto;
@@ -176,7 +191,7 @@
     display: none;
 }
 
-/* Modal Popup Styles (also used by shortcode triggers) */
+/* Modal Popup Styles (for auto-popup and shortcode triggers) */
 #nettmob-feedback-form-container.nuf-modal-mode {
     position: fixed;
     top: 0;
@@ -190,10 +205,10 @@
     justify-content: center;
     padding: 20px;
     box-sizing: border-box;
-    bottom: auto; /* Reset from base style */
+    bottom: auto; /* Reset from base/chat style */
     opacity: 0;
     visibility: hidden;
-    transition: opacity 0.3s ease, visibility 0s 0.3s linear;
+    transition: opacity 0.3s ease, visibility 0s 0.3s linear; /* visibility transition for access. */
 }
 #nettmob-feedback-form-container.nuf-modal-mode.nuf-is-visible {
     opacity: 1;
@@ -201,9 +216,9 @@
     transition: opacity 0.3s ease, visibility 0s 0s linear;
 }
 
-.nuf-modal-mode #nettmob-feedback-form-inner {
+.nuf-modal-mode #nettmob-feedback-form-inner { /* Inner content of the modal */
     background: #fff;
-    padding: 30px; /* More padding for modal */
+    padding: 30px;
     border-radius: 8px;
     box-shadow: 0 5px 20px rgba(0,0,0,0.3);
     max-width: 450px;
@@ -211,75 +226,9 @@
     max-height: 90vh;
     overflow-y: auto;
 }
-
-/* Overlay Mode Styles (for floating button click) */
-#nettmob-feedback-form-container.nuf-overlay-mode {
-    display: block;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    width: 100%;
-    height: auto;
-    max-height: 75vh;
-    background-color: #ffffff;
-    box-shadow: 0 -5px 15px rgba(0,0,0,0.15);
-    z-index: 99990;
-    transform: translateY(100%);
-    transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-    visibility: hidden;
-    opacity: 1; /* Opacity is for modal fade, overlay slides */
-}
-
-#nettmob-feedback-form-container.nuf-overlay-mode.nuf-is-visible {
-    transform: translateY(0);
-    visibility: visible;
-}
-
-.nuf-overlay-mode #nettmob-feedback-form-inner {
-    padding: 20px;
-    overflow-y: auto;
-    max-height: calc(75vh - 40px); /* Inner content height, accounts for padding */
-    box-shadow: none !important;
-    border-radius: 0;
-}
-
-/* Styles for Direct Display Mode */
-#nettmob-feedback-form-container.nuf-direct-display-active {
-    display: block !important;
-    position: relative !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    top: auto !important;
-    width: 100%;
-    max-width: 700px;
-    margin: 30px auto;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    z-index: auto !important;
-    background-color: transparent;
-    padding: 0;
-    align-items: initial !important;
-    justify-content: initial !important;
-    transform: none !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-}
-
-#nettmob-feedback-form-container.nuf-direct-display-active #nettmob-feedback-form-inner {
-    max-height: none !important;
-    box-shadow: none !important;
-    padding: 20px;
-    border-radius: 8px;
-    background: #fff;
-}
-
-#nettmob-feedback-form-container.nuf-direct-display-active #nettmob-close-feedback-form {
-    display: none;
-}
-
-.nuf-direct-display-on-page #nettmob-feedback-trigger-button {
-    display: none !important;
+/* Close button position for modal (already inside #nettmob-feedback-form-inner) */
+.nuf-modal-mode #nettmob-close-feedback-form {
+    /* Default position should be fine if it's absolute to #nettmob-feedback-form-inner */
 }
 
 /* Star Rating Styles */
@@ -287,7 +236,7 @@
     /* margin-bottom is handled by #nettmob-feedback-form div rule */
 }
 
-.form-field-stars > label { /* Target the main label of the group */
+.form-field-stars > label {
     display: block;
     margin-bottom: 5px;
     font-weight: bold;
@@ -319,9 +268,9 @@
 }
 /* Ensure star labels don't inherit general form label styles if not desired */
 .star-rating-input label {
-    font-weight: normal; /* Reset bold if it's inherited from general label */
-    font-size: 2em; /* Keep star size */
-    color: white; /* Override general label color */
+    font-weight: normal;
+    font-size: 2em;
+    color: white;
 }
 
 
@@ -338,45 +287,13 @@
     text-stroke-color: #ffd700;
 }
 
-/* Styles for Direct Display Mode */
-#nettmob-feedback-form-container.nuf-direct-display-active {
-    display: block !important; /* Ensure it's visible if JS hasn't run yet or PHP set it */
-    position: relative !important;
-    bottom: auto !important;
-    left: auto !important;
-    right: auto !important;
-    top: auto !important;
-    width: 100%;
-    max-width: 700px; /* Or adjust as preferred for inline display */
-    margin: 30px auto; /* Center it on the page */
-    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    z-index: auto !important; /* Reset z-index from modal/overlay */
-    background-color: transparent; /* Outer container is just for positioning */
-    padding: 0;
-    /* Reset flex properties from modal mode */
-    align-items: initial !important;
-    justify-content: initial !important;
-    transform: none !important; /* Reset transform from overlay mode */
-    visibility: visible !important;
-    opacity: 1 !important;
-    height: auto !important; /* Reset height if set by other modes */
-}
+/* Overlay Mode Styles (for floating button click) - REMOVED */
 
-#nettmob-feedback-form-container.nuf-direct-display-active #nettmob-feedback-form-inner {
-    max-height: none !important; /* Allow full content height */
-    box-shadow: none !important; /* Outer container has shadow */
-    padding: 20px;
-    border-radius: 8px; /* Keep rounded corners */
-    background: #fff; /* Ensure inner has background */
-    overflow-y: initial; /* Reset overflow from modal/overlay */
-}
-
-/* Hide the close button when in direct display mode, as it's not a dismissible popup */
-#nettmob-feedback-form-container.nuf-direct-display-active #nettmob-close-feedback-form {
-    display: none;
-}
-
-/* Body class to hide the floating trigger button when direct display is active on the page */
-.nuf-direct-display-on-page #nettmob-feedback-trigger-button {
-    display: none !important;
-}
+/* Styles for Direct Display Mode - REMOVED */
+/* Body class to hide the floating trigger button when direct display is active on the page - REMOVED */
+/* .nuf-direct-display-on-page #nettmob-feedback-trigger-button { display: none !important; } */
+/* Note: The JS will handle hiding the button if direct display logic were to be re-added.
+   The PHP part that added 'nuf-direct-display-on-page' to body_class was removed.
+   The PHP part that added 'nuf-direct-display-active' to the container was removed.
+   So these CSS rules would not be triggered anyway.
+*/
