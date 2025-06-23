@@ -64,302 +64,332 @@ function run_workreap_invoices() {
 // Add the invoice generation function here or include it from another file.
 
 if (!function_exists('workreap_freelancer_invoice_details_plugin')) {
-    // Renamed to avoid conflict if the theme function still exists
-    // We will also need to decide how this function is triggered.
-    // For now, it's just defined.
+    /**
+     * Generates the HTML content for a client invoice based on a WooCommerce order.
+     * This HTML is then typically used for PDF generation.
+     *
+     * @param array $args {
+     *     Optional. An array of arguments.
+     *
+     *     @type int    $order_id The ID of the WooCommerce order.
+     *     @type int    $identity Optional. The ID of the freelancer (used for "on behalf of" scenarios).
+     *                              If not provided, attempts to get it from order metadata.
+     *     @type string $option   Optional. Set to 'pdf' for PDF-specific rendering (e.g., base64 images).
+     * }
+     * @return string The HTML content of the invoice, or an error message on failure.
+     */
     function workreap_freelancer_invoice_details_plugin($args=array()) {
-        global $workreap_settings; // This global might need to be populated or accessed differently
-        ob_start(); // Start output buffering
+        ob_start();
 
-        $identity   = !empty($args['identity']) ? intval($args['identity']) : "";
-        $order_id   = !empty($args['order_id']) ? intval($args['order_id']) : "";
+        // Args: order_id (mandatory)
+        // Args: option ('pdf' for PDF specific rendering like base64 images)
+        $order_id   = !empty($args['order_id']) ? intval($args['order_id']) : 0;
+        $is_pdf_render = (!empty($args['option']) && $args['option'] === 'pdf');
 
-        // It's better to get settings via get_option if they are theme options
-        // For now, assuming $workreap_settings is available or will be handled
-        $site_logo  = !empty($workreap_settings['defaul_site_logo']['url']) ? $workreap_settings['defaul_site_logo']['url'] : '';
+        if (empty($order_id)) {
+            echo '<p>' . esc_html__('Order ID is missing for invoice generation.', 'workreap-invoices') . '</p>';
+            return ob_get_clean();
+        }
 
-        $order_type = get_post_meta( $order_id, 'project_type',true );
-
-        // Common variables that are needed regardless of project type (or can be fetched early)
         $order = wc_get_order($order_id);
-        if (empty($order_id) || !$order) {
+        if (!$order) {
              echo '<p>' . sprintf(esc_html__('Order ID %s not found or invalid.', 'workreap-invoices'), esc_html($order_id)) . '</p>';
             return ob_get_clean();
         }
 
-        // Check if WooCommerce is active (though $order check implies it)
         if (!class_exists('WooCommerce')) {
             echo '<p>' . esc_html__('WooCommerce is not active. This plugin requires WooCommerce to function.', 'workreap-invoices') . '</p>';
             return ob_get_clean();
         }
 
-        $date_format    = get_option( 'date_format' );
-        $data_created   = $order->get_date_created();
-        $order_status   = $order->get_status();
-        $order_meta     = get_post_meta( $order_id, 'cus_woo_product_data', true );
-        $order_meta     = !empty($order_meta) ? $order_meta : array();
+        // Nettmob Settings from our plugin's options
+        $nettmob_settings = nettmob_get_invoice_settings();
+        $nettmob_company_name = esc_html($nettmob_settings['nettmob_company_name']);
+        $nettmob_address_html = nl2br(esc_html($nettmob_settings['nettmob_address']));
+        $nettmob_siret_tva = esc_html($nettmob_settings['nettmob_siret_tva']);
+        $nettmob_logo_id = $nettmob_settings['nettmob_logo_id'];
+        $nettmob_logo_url = $nettmob_logo_id ? wp_get_attachment_url($nettmob_logo_id) : '';
 
-        if(!empty($order_status) && $order_status === 'refunded'){
-            $order_status_text  = esc_html__('Refunded','workreap-invoices');
-        } else if(!empty($order_status) && $order_status === 'completed'){
-            $order_status_text  = esc_html__('Completed','workreap-invoices');
-        } else {
-            $order_status_text  = wc_get_order_status_name($order_status);
+        $site_logo_to_use = $nettmob_logo_url;
+
+        // Freelancer Info (the one who performed the service)
+        // The 'identity' key in $args used to be freelancer_id. Let's try to get it from order meta first.
+        $freelancer_id = $order->get_meta('_freelancer_id', true);
+        if (!$freelancer_id && !empty($args['identity'])) { // Fallback to args if provided (e.g. from shortcode)
+            $freelancer_id = intval($args['identity']);
         }
-        $data_created   = date_i18n($date_format, strtotime($data_created->date('Y-m-d H:i:s')));
-
-        $processing_fee   = get_post_meta($order_id, 'admin_shares', true);
-        $processing_fee   = isset($processing_fee) ? floatval($processing_fee) : 0;
-        // $get_total might differ based on project type, or be calculated after specific project type details
-        // For now, we keep its original calculation method, assuming it's generic enough or will be adjusted.
-        $get_total        = get_post_meta($order_id, 'freelancer_shares', true);
-        $get_total        = !empty($get_total) ? floatval($get_total) : 0;
-
-        $billing_address        = $order->get_formatted_billing_address();
-        $from_billing_address   = !empty($identity) && function_exists('workreap_user_billing_address') ? workreap_user_billing_address($identity) : '';
-
-        $project_id     = !empty($order_meta['project_id']) ? $order_meta['project_id'] : '';
-        $project_title  = !empty($project_id) ? get_the_title( $project_id ) : '';
-        $task_title     = $project_title; // Base title
-
-        // Settings from $workreap_settings - ensure this global is reliable or switch to get_option
-        $invoice_terms  = !empty($workreap_settings['invoice_terms']) ? $workreap_settings['invoice_terms'] : '';
-        $invoice_billing_to = !empty($workreap_settings['invoice_billing_to']) ? $workreap_settings['invoice_billing_to'] : '';
-        $billing_address    = !empty($invoice_billing_to) && !empty($workreap_settings['invoice_billing_address']) ? $workreap_settings['invoice_billing_address'] : $billing_address;
-
-        if (!function_exists('workreap_price_format_plugin')) {
-            function workreap_price_format_plugin($price, $return = false) {
-                $formatted_price = wc_price($price);
-                if ($return) {
-                    return $formatted_price;
+        if (!$freelancer_id) { // Try to get from product item if not on order or args
+            foreach ($order->get_items() as $item_id => $item) {
+                $product_id = $item->get_product_id();
+                if ($product_id) {
+                    // YOU MUST VERIFY THIS META KEY FOR FREELANCER ID ON PRODUCT/PROJECT
+                    $freelancer_id_from_product = get_post_meta($product_id, '_freelancer_id', true);
+                    if ($freelancer_id_from_product) {
+                        $freelancer_id = $freelancer_id_from_product;
+                        break;
+                    }
                 }
-                echo $formatted_price;
             }
         }
-        $price_format_func = function_exists('workreap_price_format') ? 'workreap_price_format' : 'workreap_price_format_plugin';
 
-        // Start HTML Output - Common Header Part
+        $freelancer_first_name = '';
+        $freelancer_last_name = '';
+        $freelancer_display_name = __('N/A', 'workreap-invoices');
+
+        if ($freelancer_id) {
+            $freelancer_user_data = get_userdata($freelancer_id);
+            if ($freelancer_user_data) {
+                $freelancer_first_name = $freelancer_user_data->first_name;
+                $freelancer_last_name = $freelancer_user_data->last_name;
+                $freelancer_display_name = trim($freelancer_first_name . ' ' . $freelancer_last_name);
+                if(empty($freelancer_display_name)) $freelancer_display_name = $freelancer_user_data->display_name;
+            }
+        }
+
+        // Client Info (Billing details from WooCommerce order)
+        $client_first_name = $order->get_billing_first_name();
+        $client_last_name = $order->get_billing_last_name();
+        $client_company_name = $order->get_billing_company();
+        $client_email = $order->get_billing_email();
+        // Construct client address string
+        $client_address_parts = array_filter(array(
+            $order->get_billing_address_1(),
+            $order->get_billing_address_2(),
+            $order->get_billing_city(),
+            $order->get_billing_state(),
+            $order->get_billing_postcode(),
+            WC()->countries->countries[$order->get_billing_country()] ?? $order->get_billing_country()
+        ));
+        $client_address_html = implode('<br />', $client_address_parts);
+
+
+        // Order Details for Invoice
+        $order_date_obj = $order->get_date_created();
+        $invoice_date = $order_date_obj ? $order_date_obj->date_i18n(get_option('date_format')) : date_i18n(get_option('date_format'));
+        $payment_delay_text = esc_html($nettmob_settings['nettmob_payment_delay']);
+
+        // Line Items
+        $line_items_html = '';
+        $subtotal_before_vat = 0;
+
+        foreach($order->get_items() as $item_id => $item) {
+            $product_name = $item->get_name();
+            $quantity = $item->get_quantity();
+            // get_subtotal() is typically pre-tax unless WC settings are unusual.
+            // If prices include tax, get_subtotal() also includes tax for that line.
+            // We need the pre-tax line total to calculate overall VAT correctly.
+            $line_total_pre_tax = $item->get_subtotal(); // Amount for this line, before order discounts, after item discounts
+            $line_total_display = wc_price($line_total_pre_tax, array('currency' => $order->get_currency()));
+
+            // If your WooCommerce prices *include* tax, and $item->get_subtotal() includes tax,
+            // you need to subtract the line tax: $line_total_pre_tax = $item->get_subtotal() - $item->get_subtotal_tax();
+            // For now, assuming $item->get_subtotal() is what we need for pre-tax sum.
+            // This is a common point of confusion with WooCommerce taxes.
+            // The most reliable way to get order totals (subtotal, total, tax) is from the $order object itself after all items.
+
+            $subtotal_before_vat += $line_total_pre_tax;
+
+            $line_items_html .= sprintf(
+                '<tr>
+                    <td>%s</td>
+                    <td style="text-align:center;">%s</td>
+                    <td style="text-align:right;">%s</td>
+                 </tr>',
+                esc_html($product_name),
+                esc_html($quantity),
+                $line_total_display // wc_price already escapes
+            );
+        }
+        // More reliable subtotal from order object, especially if complex taxes/discounts apply
+        $subtotal_before_vat = $order->get_subtotal(); // This is generally sum of line subtotals pre-discount, pre-shipping.
+
+        // Financials using Nettmob settings
+        $vat_rate_config = floatval($nettmob_settings['nettmob_vat_rate']);
+        $vat_amount = 0;
+        if ($vat_rate_config > 0) {
+            $vat_amount = ($subtotal_before_vat * $vat_rate_config) / 100;
+        }
+        $total_with_vat = $subtotal_before_vat + $vat_amount;
+
+        // PDF Header/Footer Text
+        $pdf_header_text_config = !empty($nettmob_settings['nettmob_pdf_header_text']) ? wpautop(wp_kses_post($nettmob_settings['nettmob_pdf_header_text'])) : '';
+        $pdf_footer_text_config = !empty($nettmob_settings['nettmob_pdf_footer_text']) ? wpautop(wp_kses_post($nettmob_settings['nettmob_pdf_footer_text'])) : '';
+
+        // Original Workreap project type specific logic (e.g. hourly details) - can be adapted if needed
+        // $order_type = $order->get_meta('project_type', true);
+        // $order_meta_workreap = $order->get_meta('cus_woo_product_data', true);
+        // $order_meta_workreap = !empty($order_meta_workreap) ? $order_meta_workreap : array();
+
+        // Price formatting function
+        $price_format_func = function($price) use ($order) {
+            return wc_price($price, array('currency' => $order->get_currency()));
+        };
+
+        // BEGIN HTML STRUCTURE - This is a simplified example, you'll need to style it properly.
+        // The classes like wr-main-section, wr-invoicebill etc. are from your original HTML.
         ?>
-        <div class="wr-main-section wr-invoice-plugin <?php echo esc_attr('wr-invoice-type-'.$order_type); ?>">
-            <div class="container">
-                <div class="row">
-                    <div class="col-sm-12">
-                        <div class="wr-invoicedetal">
-                            <div class="wr-printable">
-                                <div class="wr-invoicebill">
-                                    <?php if( !empty($site_logo) ){
-                                        if( !empty($args['option']) && $args['option'] === 'pdf'){
-                                            $type           = pathinfo($site_logo, PATHINFO_EXTENSION);
-                                            $data           = @file_get_contents($site_logo);
-                                            if ($data !== false) {
-                                                $base64_logo    = 'data:image/' . $type . ';base64,' . base64_encode($data);
-                                                echo do_shortcode( '<figure><img src="'.($base64_logo).'" alt="'.esc_attr__('invoice detail','workreap-invoices').'"></figure>' );
-                                            } else {
-                                                echo '<p>' . esc_html__('Error loading site logo.', 'workreap-invoices') . '</p>';
-                                            }
-                                        } else { ?>
-                                            <figure>
-                                                <img src="<?php echo esc_url($site_logo);?>" alt="<?php esc_attr_e('invoice detail','workreap-invoices');?>">
-                                            </figure>
-                                    <?php } } ?>
-                                    <div class="wr-billno">
-                                        <h3><?php esc_html_e('Invoice', 'workreap-invoices'); ?></h3>
-                                        <span># <?php echo intval($order_id); ?></span>
-                                    </div>
-                                    <?php
-                                    if (empty($args['option']) || $args['option'] !== 'pdf') {
-                                        $download_url = add_query_arg(array(
-                                            'download_invoice_pdf' => 'true',
-                                            'order_id'             => $order_id,
-                                            '_wpnonce'             => wp_create_nonce('download_invoice_' . $order_id)
-                                        ), home_url());
-                                        ?>
-                                        <div class="wr-invoice-download">
-                                            <a href="<?php echo esc_url($download_url); ?>" class="button wr-btn"><?php esc_html_e('Download PDF', 'workreap-invoices'); ?></a>
-                                        </div>
-                                    <?php } ?>
-                                </div>
-                                <div class="wr-tasksinfos">
-                                    <?php if( !empty($task_title) ){?>
-                                        <div class="wr-invoicetasks">
-                                            <h5><?php esc_html_e('Project Title','workreap-invoices');?>:</h5>
-                                            <h3><?php echo esc_html($task_title); ?></h3>
-                                        </div>
-                                    <?php } ?>
-                                    <div class="wr-tasksdates">
-                                        <div class="wr-tags"><span class="wr-tag-ongoing order-status-<?php echo esc_attr(sanitize_title($order_status)); ?>"><?php echo esc_html($order_status_text);?></span></div>
-                                        <span> <em><?php esc_html_e('Issue date:', 'workreap-invoices') ?>&nbsp;</em><?php echo esc_html($data_created); ?></span>
-                                    </div>
-                                </div>
-                                <div class="wr-invoicefromto">
-                                    <?php if (!empty($from_billing_address)){ ?>
-                                        <div class="wr-fromreceiver">
-                                            <h5><?php esc_html_e('From:', 'workreap-invoices'); ?></h5>
-                                            <span><?php echo do_shortcode(nl2br(esc_html($from_billing_address))); ?></span>
-                                        </div>
-                                    <?php } ?>
-                                    <?php if( !empty($billing_address) ){?>
-                                        <div class="wr-fromreceiver">
-                                            <h5><?php esc_html_e('To:', 'workreap-invoices'); ?></h5>
-                                            <span><?php echo do_shortcode(nl2br($billing_address)); ?></span>
-                                        </div>
-                                    <?php } ?>
-                                </div>
+        <div class="nettmob-invoice-wrap wr-main-section wr-invoice-plugin">
+            <div class="wr-printable">
+                <?php if ($pdf_header_text_config): ?>
+                    <div class="nettmob-invoice-custom-header">
+                        <?php echo $pdf_header_text_config; ?>
+                    </div>
+                <?php endif; ?>
 
-                                <?php
-                                // Specific part for project type
-                                if( !empty($order_type) && $order_type === 'hourly' ){
-                                    $invoice_status = get_post_meta( $order_id,'_task_status', true );
-                                    $invoice_status = !empty($invoice_status) ? $invoice_status : '';
-
-                                    // Update task_title for hourly to include interval name if present
-                                    if (!empty($order_meta['interval_name'])) {
-                                        $task_title = $project_title ? $project_title . ' ('. $order_meta['interval_name'].')' : $order_meta['interval_name'];
-                                        // We might need to update the display of task_title if it was already printed
-                                        // This is a bit tricky as task_title is in the common header.
-                                        // For now, the generic project_title is in the header.
-                                        // Hourly specific title detail can be in its section.
-                                    }
-                                ?>
-                                    <?php if( !empty($invoice_status) && $invoice_status === 'pending'){?>
-                                        <div class="wr-freelancer-empty-hourlyinvoice">
-                                            <div class="wr-orderrequest wr-alert-success">
-                                                <p><?php esc_html_e('Buyer has not released the payment against the project for which you are hired. Once you will submit the hours for approval then employer will review and release the payment','workreap-invoices') ?></p>
-                                            </div>
-                                        </div>
-                                    <?php } else {?>
-                                        <div class="wr-invoicetask-details">
-                                            <h4><?php esc_html_e('Hourly Details', 'workreap-invoices'); ?></h4>
-                                            <table class="wr-table wr-invoice-table">
-                                                <thead>
-                                                <tr>
-                                                    <th><?php esc_html_e('#','workreap-invoices');?></th>
-                                                    <th><?php esc_html_e('Description', 'workreap-invoices'); ?></th>
-                                                    <th><?php esc_html_e('Rate per hour', 'workreap-invoices'); ?></th>
-                                                    <th><?php esc_html_e('Total hours', 'workreap-invoices'); ?></th>
-                                                    <th><?php esc_html_e('Amount', 'workreap-invoices'); ?></th>
-                                                </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <?php if( isset($order_meta['approved_total_time']) && isset($order_meta['approved_amount']) ){?>
-                                                        <tr>
-                                                            <td data-label="<?php esc_attr_e('#', 'workreap-invoices');?>"><?php echo intval(1);?></td>
-                                                            <td data-label="<?php esc_attr_e('Description', 'workreap-invoices');?>">
-                                                                <?php
-                                                                    if( !empty($order_meta['interval_name']) ){
-                                                                        echo esc_html($order_meta['interval_name']);
-                                                                    } else {
-                                                                        echo esc_html($project_title); // Fallback to project title
-                                                                    }
-                                                                ?>
-                                                            </td>
-                                                            <td data-label="<?php esc_attr_e('Rate per hour', 'workreap-invoices'); ?>"><?php call_user_func($price_format_func, $order_meta['hourly_rate']);?></td>
-                                                            <td data-label="<?php esc_attr_e('Total hours', 'workreap-invoices'); ?>"><?php echo esc_html($order_meta['approved_total_time']);?></td>
-                                                            <td data-label="<?php esc_attr_e('Amount', 'workreap-invoices');?>"><?php call_user_func($price_format_func, $order_meta['approved_amount']);?></td>
-                                                        </tr>
-                                                    <?php } ?>
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    <?php } ?>
-                                <?php
-                                } else if ( !empty($order_type) && ($order_type === 'fixed' || $order_type === 'milestone_based' ) ) { // Assuming 'fixed' or 'milestone_based' might be a type
-                                    // Placeholder for fixed price project invoice details
-                                    // You'll need to fetch relevant data for fixed projects, e.g., agreed price, milestones if any.
-                                    $fixed_price_amount = get_post_meta($order_id, '_order_total', true); // Example: get total from order itself
-                                    $fixed_price_amount = !empty($fixed_price_amount) ? $fixed_price_amount : $order->get_total();
-
-                                    // For fixed projects, the "sub_total" might just be the project price.
-                                    // And admin commission might be calculated differently or stored in different meta.
-                                    // We need to ensure $get_total and $processing_fee are correct for fixed projects.
-                                    // For now, we'll assume $get_total is the freelancer's share after commission.
-                                ?>
-                                    <div class="wr-invoicetask-details">
-                                        <h4><?php esc_html_e('Project Details', 'workreap-invoices'); ?></h4>
-                                        <table class="wr-table wr-invoice-table">
-                                            <thead>
-                                                <tr>
-                                                    <th><?php esc_html_e('Description', 'workreap-invoices'); ?></th>
-                                                    <th><?php esc_html_e('Amount', 'workreap-invoices'); ?></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                <tr>
-                                                    <td data-label="<?php esc_attr_e('Description', 'workreap-invoices');?>"><?php echo esc_html($project_title); ?></td>
-                                                    <td data-label="<?php esc_attr_e('Amount', 'workreap-invoices');?>"><?php call_user_func($price_format_func, $fixed_price_amount);?></td>
-                                                </tr>
-                                                <?php
-                                                // If there are milestones for a fixed project, you might loop through them here.
-                                                // Example:
-                                                // $milestones = get_post_meta($project_id, '_milestones', true);
-                                                // if (!empty($milestones) && is_array($milestones)) {
-                                                //    foreach($milestones as $milestone) {
-                                                //        // Display milestone details
-                                                //    }
-                                                // }
-                                                ?>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                <?php
+                <div class="wr-invoicebill" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+                    <div class="nettmob-logo">
+                        <?php if( !empty($site_logo_to_use) ){
+                            if( $is_pdf_render ){
+                                $type = pathinfo($site_logo_to_use, PATHINFO_EXTENSION);
+                                $data = @file_get_contents($site_logo_to_use);
+                                if ($data !== false) {
+                                    $base64_logo = 'data:image/' . $type . ';base64,' . base64_encode($data);
+                                    echo '<img src="'.esc_url($base64_logo).'" alt="'.esc_attr($nettmob_company_name).'" style="max-width: 200px; max-height: 100px;" />';
                                 } else {
-                                    // Handle other project types or show a default message
-                                ?>
-                                    <div class="wr-invoicetask-details">
-                                        <p><?php
-                                            if (empty($order_type)) {
-                                                esc_html_e('Project type not specified for this order. Cannot display detailed breakdown.', 'workreap-invoices');
-                                            } else {
-                                                printf(esc_html__('Invoice details for project type "%s" are not yet implemented.', 'workreap-invoices'), esc_html($order_type));
-                                            }
-                                        ?></p>
-                                    </div>
-                                <?php
+                                    echo '<p>' . esc_html__('Error loading site logo.', 'workreap-invoices') . '</p>';
                                 }
-                                ?>
-
-                                <?php // Common Footer Part (Subtotals, Totals, Terms) ?>
-                                <div class="wr-subtotal">
-                                    <ul class="wr-subtotalbill">
-                                        <?php
-                                        // Subtotal logic might need adjustment based on project type
-                                        // For hourly, it's $order_meta['approved_amount']
-                                        // For fixed, it might be the $fixed_price_amount before commission
-                                        $sub_total_display = 0;
-                                        if ($order_type === 'hourly' && isset($order_meta['approved_amount'])) {
-                                            $sub_total_display = $order_meta['approved_amount'];
-                                        } elseif (($order_type === 'fixed' || $order_type === 'milestone_based') && isset($fixed_price_amount)) {
-                                            // This assumes fixed_price_amount is the amount *before* admin commission.
-                                            // If $get_total is freelancer share and $processing_fee is admin share,
-                                            // then sub_total (gross) would be $get_total + $processing_fee.
-                                            $sub_total_display = $get_total + $processing_fee;
-                                        }
-                                        if ($sub_total_display > 0) {
-                                        ?>
-                                            <li><?php esc_html_e('Sub total:', 'workreap-invoices'); ?> <h6><?php call_user_func($price_format_func, $sub_total_display); ?></h6></li>
-                                        <?php } ?>
-                                        <li><?php esc_html_e('Admin commission:', 'workreap-invoices'); ?> <h6><?php call_user_func($price_format_func, $processing_fee); ?></h6></li>
-                                    </ul>
-                                    <div class="wr-sumtotal"><?php esc_html_e('Net Earning (Freelancer):','workreap-invoices'); ?> <h6><?php call_user_func($price_format_func, $get_total); ?></h6></div>
-                                </div>
-
-                                <?php if( !empty($invoice_terms) ){?>
-                                    <div class="wr-anoverview">
-                                        <h4><?php esc_html_e('Terms & Conditions', 'workreap-invoices'); ?></h4>
-                                        <div class="wr-description">
-                                            <?php echo do_shortcode( wpautop( wp_kses_post( $invoice_terms ) ) ); ?>
-                                        </div>
-                                    </div>
-                                <?php } ?>
-                            </div>
-                        </div>
+                            } else { ?>
+                                <img src="<?php echo esc_url($site_logo_to_use);?>" alt="<?php echo esc_attr($nettmob_company_name);?>" style="max-width: 200px; max-height: 100px;">
+                            <?php }
+                        } ?>
+                    </div>
+                    <div class="wr-billno" style="text-align: right;">
+                        <h2><?php esc_html_e('FACTURE', 'workreap-invoices'); ?></h2>
+                        <p><strong><?php esc_html_e('Facture N°:', 'workreap-invoices'); ?></strong> <?php echo esc_html($order->get_order_number()); // Use WC order number ?></p>
+                        <p><strong><?php esc_html_e('Date de facturation:', 'workreap-invoices'); ?></strong> <?php echo esc_html($invoice_date); ?></p>
+                        <p><strong><?php esc_html_e('Délai de paiement:', 'workreap-invoices'); ?></strong> <?php echo esc_html($payment_delay_text); ?></p>
                     </div>
                 </div>
+
+                <div class="nettmob-invoice-header-info" style="margin-bottom: 30px;">
+                    <p><?php printf(esc_html__('Facture émise par %s au nom de : %s', 'workreap-invoices'), '<strong>' . esc_html($nettmob_company_name) . '</strong>', '<strong>' . esc_html($freelancer_display_name) . '</strong>'); ?></p>
+                    <?php if($nettmob_siret_tva): ?>
+                        <p><?php echo esc_html($nettmob_siret_tva); ?></p>
+                    <?php endif; ?>
+                     <?php if($nettmob_address_html): ?>
+                        <p><?php echo $nettmob_address_html; // Already escaped and nl2br'd ?></p>
+                    <?php endif; ?>
+                </div>
+
+                <div class="wr-invoicefromto" style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+                    <div class="nettmob-client-info wr-fromreceiver" style="width: 48%;">
+                        <h4><?php esc_html_e('Client :', 'workreap-invoices'); ?></h4>
+                        <p>
+                            <strong><?php echo esc_html(trim($client_first_name . ' ' . $client_last_name)); ?></strong><br>
+                            <?php if ($client_company_name): ?>
+                                <?php echo esc_html($client_company_name); ?><br>
+                            <?php endif; ?>
+                            <?php echo $client_address_html; // WC formatted address, should be safe ?><br>
+                            <?php echo esc_html($client_email); ?>
+                        </p>
+                    </div>
+                     <?php /* Placeholder for "From" if needed, but Nettmob is the issuer here
+                     <div class="wr-fromreceiver" style="width: 48%;">
+                        <h5><?php esc_html_e('Prestataire (pour information) :', 'workreap-invoices'); ?></h5>
+                        <p><strong><?php echo esc_html($freelancer_display_name); ?></strong></p>
+                    </div>
+                    */ ?>
+                </div>
+
+                <table class="wr-table wr-invoice-table nettmob-invoice-items" style="width: 100%; margin-bottom: 20px; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th style="text-align:left; padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Description', 'workreap-invoices'); ?></th>
+                            <th style="text-align:center; padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Quantité', 'workreap-invoices'); ?></th>
+                            <th style="text-align:right; padding: 8px; border: 1px solid #ddd;"><?php esc_html_e('Prix HT', 'workreap-invoices'); ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php echo $line_items_html; // Generated above ?>
+                    </tbody>
+                </table>
+
+                <div class="wr-subtotal" style="width: 50%; margin-left: auto; text-align: right;">
+                    <ul class="wr-subtotalbill" style="list-style: none; padding: 0;">
+                        <li><?php esc_html_e('Sous-Total HT:', 'workreap-invoices'); ?> <span style="float:right;"><?php echo $price_format_func($subtotal_before_vat); ?></span></li>
+                        <?php if ($vat_rate_config > 0): ?>
+                        <li><?php printf(esc_html__('TVA (%s%%):', 'workreap-invoices'), esc_html($vat_rate_config)); ?> <span style="float:right;"><?php echo $price_format_func($vat_amount); ?></span></li>
+                        <?php endif; ?>
+                    </ul>
+                    <div class="wr-sumtotal" style="font-weight: bold; margin-top: 10px; border-top: 1px solid #ddd; padding-top: 10px;">
+                        <?php esc_html_e('TOTAL TTC:', 'workreap-invoices'); ?> <span style="float:right;"><?php echo $price_format_func($total_with_vat); ?></span>
+                    </div>
+                </div>
+
+                <?php if ($pdf_footer_text_config): ?>
+                    <div class="nettmob-invoice-custom-footer" style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 15px;">
+                        <?php echo $pdf_footer_text_config; ?>
+                    </div>
+                <?php endif; ?>
+
             </div>
         </div>
         <?php
-        return ob_get_clean(); // Return buffered content
-        // Removed the old "else" block that was outside the main if/else if for order_type
+        return ob_get_clean();
+    }
+}
+
+// Helper functions for PDF existence and URLs
+if (!function_exists('nettmob_get_invoice_upload_dir_path')) {
+    function nettmob_get_invoice_upload_dir_path() {
+        $upload_dir = wp_upload_dir();
+        return $upload_dir['basedir'] . '/workreap-invoices/';
+    }
+}
+if (!function_exists('nettmob_get_invoice_upload_dir_url')) {
+    function nettmob_get_invoice_upload_dir_url() {
+        $upload_dir = wp_upload_dir();
+        return $upload_dir['baseurl'] . '/workreap-invoices/';
+    }
+}
+
+// Convention de nommage: client_[order_id].pdf, commission_[order_id].pdf
+// NOTE: We might add a timestamp or hash to the filename later if regeneration is frequent,
+// but for a simple existence check, this is okay. We'd need a more robust way to find the *latest* if so.
+
+if (!function_exists('nettmob_get_client_invoice_filename')) {
+    function nettmob_get_client_invoice_filename($order_id) {
+        return 'client_invoice_' . intval($order_id) . '.pdf';
+    }
+}
+
+if (!function_exists('nettmob_get_commission_invoice_filename')) {
+    function nettmob_get_commission_invoice_filename($order_id) {
+        return 'commission_invoice_' . intval($order_id) . '.pdf';
+    }
+}
+
+if (!function_exists('nettmob_has_client_invoice')) {
+    function nettmob_has_client_invoice($order_id) {
+        $filepath = nettmob_get_invoice_upload_dir_path() . nettmob_get_client_invoice_filename($order_id);
+        return file_exists($filepath);
+        // return false; // TEMP: Force "Generate" links for testing
+    }
+}
+
+if (!function_exists('nettmob_has_commission_invoice')) {
+    function nettmob_has_commission_invoice($order_id) {
+        $filepath = nettmob_get_invoice_upload_dir_path() . nettmob_get_commission_invoice_filename($order_id);
+        return file_exists($filepath);
+        // return false; // TEMP: Force "Generate" links for testing
+    }
+}
+
+if (!function_exists('nettmob_get_client_invoice_url')) {
+    function nettmob_get_client_invoice_url($order_id) {
+        if (nettmob_has_client_invoice($order_id)) {
+            return nettmob_get_invoice_upload_dir_url() . nettmob_get_client_invoice_filename($order_id);
+        }
+        return false;
+    }
+}
+
+if (!function_exists('nettmob_get_commission_invoice_url')) {
+    function nettmob_get_commission_invoice_url($order_id) {
+        if (nettmob_has_commission_invoice($order_id)) {
+            return nettmob_get_invoice_upload_dir_url() . nettmob_get_commission_invoice_filename($order_id);
+        }
+        return false;
     }
 }
 
@@ -456,31 +486,48 @@ function workreap_generate_invoice_pdf($args, $output_mode = 'F') {
 
     $order_id = !empty($args['order_id']) ? intval($args['order_id']) : 0;
     if (empty($order_id)) {
-        error_log('Order ID is missing for PDF generation.');
+        error_log('Client Invoice PDF Generation: Order ID is missing.');
         return false;
     }
 
-    // Get the HTML content of the invoice
-    // Pass 'pdf' option to handle image embedding differently if needed
-    $invoice_html_args = $args;
-    $invoice_html_args['option'] = 'pdf';
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        error_log("Client Invoice PDF Generation: Could not retrieve order for ID {$order_id}.");
+        return false;
+    }
+
+    // Get Nettmob settings to use for PDF metadata
+    $nettmob_settings = nettmob_get_invoice_settings();
+    $nettmob_company_name = $nettmob_settings['nettmob_company_name'];
+
+    // Prepare arguments for the HTML generation function
+    // The 'identity' here should be the freelancer_id if the invoice is "on behalf of"
+    // This needs to be correctly passed to workreap_generate_invoice_pdf
+    // For now, we assume it's part of $args if needed by workreap_freelancer_invoice_details_plugin
+    $invoice_html_args = array(
+        'order_id' => $order_id,
+        'identity' => !empty($args['identity']) ? $args['identity'] : null, // Pass through freelancer ID if available
+        'option'   => 'pdf' // Critical for base64 image encoding
+    );
     $invoice_html = workreap_freelancer_invoice_details_plugin($invoice_html_args);
 
     if (empty($invoice_html)) {
-        error_log("Failed to generate HTML content for invoice Order ID: {$order_id}.");
+        error_log("Client Invoice PDF Generation: Failed to generate HTML content for Order ID {$order_id}.");
         return false;
     }
 
     // Create new PDF document
+    // TODO: Consider page size/orientation options from settings later
     $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
 
     // Set document information
-    $pdf->SetCreator(PDF_CREATOR);
-    $pdf->SetAuthor(get_bloginfo('name'));
-    $pdf->SetTitle(sprintf(esc_html__('Invoice #%s', 'workreap-invoices'), $order_id));
-    $pdf->SetSubject(sprintf(esc_html__('Invoice for Order #%s', 'workreap-invoices'), $order_id));
+    $pdf->SetCreator(esc_html($nettmob_company_name));
+    $pdf->SetAuthor(esc_html($nettmob_company_name));
+    $pdf->SetTitle(sprintf(esc_html__('Facture %s - %s', 'workreap-invoices'), $order->get_order_number(), esc_html($nettmob_company_name)));
+    $pdf->SetSubject(sprintf(esc_html__('Facture pour la commande %s', 'workreap-invoices'), $order->get_order_number()));
 
-    // Remove default header/footer
+    // Remove default TCPDF header/footer if we are embedding them via HTML from settings
+    // (nettmob_pdf_header_text, nettmob_pdf_footer_text)
     $pdf->setPrintHeader(false);
     $pdf->setPrintFooter(false);
 
@@ -531,8 +578,8 @@ function workreap_generate_invoice_pdf($args, $output_mode = 'F') {
     }
 
     // Sanitize order_id for filename
-    $filename_order_id = preg_replace('/[^a-zA-Z0-9_\-\.]/', '', (string)$order_id);
-    $pdf_file_name = 'invoice-' . $filename_order_id . '.pdf';
+    // Use the new filename convention
+    $pdf_file_name = nettmob_get_client_invoice_filename($order_id);
     $pdf_file_path = $invoice_dir . $pdf_file_name;
 
     // Output the PDF
@@ -663,36 +710,41 @@ function nettmob_get_invoice_settings() {
     return wp_parse_args($settings, $defaults); // Ensure all keys are present
 }
 
-
+/**
+ * Adds the Nettmob Invoice menu and submenu pages to the WordPress admin.
+ */
 add_action('admin_menu', 'nettmob_invoice_add_admin_menu');
-add_action('admin_init', 'nettmob_invoice_settings_init');
-
 function nettmob_invoice_add_admin_menu() {
     // Add top-level menu page for the main invoice list
     add_menu_page(
-        __('Nettmob Factures', 'workreap-invoices'), // Page Title
-        __('Nettmob Facture', 'workreap-invoices'),  // Menu Title
-        'manage_options',                            // Capability (administrator)
-        'nettmob-invoices',                          // Menu Slug (main page)
-        'nettmob_invoice_list_page_html',            // Function to display the list page
-        'dashicons-text-page',                       // Icon
-        30                                           // Position
+        __('Nettmob Factures', 'workreap-invoices'),      // Page Title
+        __('Nettmob Facture', 'workreap-invoices'),     // Menu Title
+        'manage_options',                               // Capability (administrator)
+        'nettmob-invoices',                             // Menu Slug (main page)
+        'nettmob_invoice_list_page_html',               // Function to display the list page
+        'dashicons-text-page',                          // Icon
+        30                                              // Position
     );
 
     // Add submenu page for Settings
     add_submenu_page(
-        'nettmob-invoices',                          // Parent Slug
+        'nettmob-invoices',                             // Parent Slug
         __('Réglages - Nettmob Facture', 'workreap-invoices'), // Page Title
-        __('Réglages', 'workreap-invoices'),         // Menu Title
-        'manage_options',                            // Capability
-        NETTMOO_INVOICE_SETTINGS_SLUG,               // Menu Slug (settings page)
-        'nettmob_invoice_settings_page_html'         // Function to display the settings page
+        __('Réglages', 'workreap-invoices'),            // Menu Title
+        'manage_options',                               // Capability
+        NETTMOO_INVOICE_SETTINGS_SLUG,                  // Menu Slug (settings page)
+        'nettmob_invoice_settings_page_html'            // Function to display the settings page
     );
 }
 
-// Placeholder for the invoice list page HTML callback function
-// We will develop this function and the WP_List_Table class in the next steps.
+/**
+ * Renders the HTML for the main invoice listing page in the admin.
+ * This page will display the Nettmob_Invoice_List_Table.
+ */
 function nettmob_invoice_list_page_html() {
+    if (!current_user_can('manage_options')) {
+        wp_die(esc_html__('Accès non autorisé.', 'workreap-invoices'));
+    }
     ?>
     <div class="wrap">
         <h1><?php esc_html_e('Liste des Factures Nettmob', 'workreap-invoices'); ?></h1>
@@ -1016,6 +1068,377 @@ function nettmob_invoice_enqueue_admin_scripts($hook_suffix) {
     if ('toplevel_page_' . NETTMOO_INVOICE_SETTINGS_SLUG === $hook_suffix ||
         (isset($_GET['page']) && $_GET['page'] === NETTMOO_INVOICE_SETTINGS_SLUG)) { // Check for submenu page too if structure changes
         wp_enqueue_media();
+    }
+}
+
+function nettmob_get_commission_invoice_html($order_id, $is_pdf_render = false) {
+    if (empty($order_id)) {
+        return '<p>' . esc_html__('Order ID is missing for commission slip.', 'workreap-invoices') . '</p>';
+    }
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        return '<p>' . sprintf(esc_html__('Order ID %s not found or invalid for commission slip.', 'workreap-invoices'), esc_html($order_id)) . '</p>';
+    }
+
+    ob_start();
+
+    // Nettmob Settings
+    $nettmob_settings = nettmob_get_invoice_settings();
+    $nettmob_company_name = esc_html($nettmob_settings['nettmob_company_name']);
+    $nettmob_address_html = nl2br(esc_html($nettmob_settings['nettmob_address']));
+    $nettmob_siret_tva = esc_html($nettmob_settings['nettmob_siret_tva']);
+    $nettmob_logo_id = $nettmob_settings['nettmob_logo_id'];
+    $nettmob_logo_url = $nettmob_logo_id ? wp_get_attachment_url($nettmob_logo_id) : '';
+    $site_logo_to_use = $nettmob_logo_url;
+    $payment_delay_text = esc_html($nettmob_settings['nettmob_payment_delay']);
+    $pdf_header_text_config = !empty($nettmob_settings['nettmob_pdf_header_text']) ? wpautop(wp_kses_post($nettmob_settings['nettmob_pdf_header_text'])) : '';
+    $pdf_footer_text_config = !empty($nettmob_settings['nettmob_pdf_footer_text']) ? wpautop(wp_kses_post($nettmob_settings['nettmob_pdf_footer_text'])) : '';
+
+    // Client Info
+    $client_first_name = $order->get_billing_first_name();
+    $client_last_name = $order->get_billing_last_name();
+    $client_company_name = $order->get_billing_company();
+    $client_email = $order->get_billing_email();
+    $client_address_html = $order->get_formatted_billing_address();
+
+
+    // Freelancer Info
+    $freelancer_id = $order->get_meta('_freelancer_id', true);
+     if (!$freelancer_id) {
+        foreach ($order->get_items() as $item_id => $item) {
+            $product_id = $item->get_product_id();
+            if ($product_id) {
+                $freelancer_id_from_product = get_post_meta($product_id, '_freelancer_id', true);
+                if ($freelancer_id_from_product) {
+                    $freelancer_id = $freelancer_id_from_product;
+                    break;
+                }
+            }
+        }
+    }
+    $freelancer_name = __('N/A', 'workreap-invoices');
+    if ($freelancer_id) {
+        $freelancer_user_data = get_userdata($freelancer_id);
+        if ($freelancer_user_data) {
+            $freelancer_name = trim($freelancer_user_data->first_name . ' ' . $freelancer_user_data->last_name);
+            if(empty($freelancer_name)) $freelancer_name = $freelancer_user_data->display_name;
+        }
+    }
+
+    // Order Details
+    $order_date_obj = $order->get_date_created();
+    $transaction_date = $order_date_obj ? $order_date_obj->date_i18n(get_option('date_format')) : date_i18n(get_option('date_format'));
+    $order_number = $order->get_order_number();
+
+    // Commission Amount
+    // IMPORTANT: Verify this meta key for admin shares/platform commission
+    $commission_amount = floatval(get_post_meta($order_id, 'admin_shares', true));
+
+    $price_format_func = function($price) use ($order) {
+        return wc_price($price, array('currency' => $order->get_currency()));
+    };
+
+    ?>
+    <div class="nettmob-commission-slip-wrap" style="font-family: sans-serif; font-size: 12px; padding: 20px;">
+        <?php if ($pdf_header_text_config): ?>
+            <div class="nettmob-invoice-custom-header" style="margin-bottom: 20px;"><?php echo $pdf_header_text_config; ?></div>
+        <?php endif; ?>
+
+        <table style="width: 100%; margin-bottom: 30px;">
+            <tr>
+                <td style="width: 60%; vertical-align: top;">
+                    <?php if (!empty($site_logo_to_use)): ?>
+                        <?php
+                        if ($is_pdf_render) {
+                            $type = pathinfo($site_logo_to_use, PATHINFO_EXTENSION);
+                            $data = @file_get_contents($site_logo_to_use);
+                            if ($data !== false) {
+                                $base64_logo = 'data:image/' . $type . ';base64,' . base64_encode($data);
+                                echo '<img src="'.esc_url($base64_logo).'" alt="'.esc_attr($nettmob_company_name).'" style="max-width: 180px; max-height: 90px;" />';
+                            }
+                        } else {
+                            echo '<img src="'.esc_url($site_logo_to_use).'" alt="'.esc_attr($nettmob_company_name).'" style="max-width: 180px; max-height: 90px;" />';
+                        }
+                        ?>
+                    <?php endif; ?>
+                </td>
+                <td style="width: 40%; text-align: right; vertical-align: top;">
+                    <h2 style="margin:0 0 10px 0; font-size: 20px;"><?php esc_html_e('RELEVÉ DE COMMISSION', 'workreap-invoices'); ?></h2>
+                    <p style="margin:2px 0;"><strong><?php esc_html_e('Commande N°:', 'workreap-invoices'); ?></strong> <?php echo esc_html($order_number); ?></p>
+                    <p style="margin:2px 0;"><strong><?php esc_html_e('Date de Transaction:', 'workreap-invoices'); ?></strong> <?php echo esc_html($transaction_date); ?></p>
+                </td>
+            </tr>
+        </table>
+
+        <table style="width: 100%; margin-bottom: 30px;">
+            <tr>
+                <td style="width: 50%; vertical-align: top;">
+                    <h4 style="margin:0 0 5px 0;"><?php esc_html_e('Plateforme :', 'workreap-invoices'); ?></h4>
+                    <p style="margin:0;">
+                        <strong><?php echo esc_html($nettmob_company_name); ?></strong><br>
+                        <?php echo $nettmob_address_html; ?><br>
+                        <?php if($nettmob_siret_tva) { echo esc_html($nettmob_siret_tva) . '<br>'; } ?>
+                    </p>
+                </td>
+                <td style="width: 50%; vertical-align: top;">
+                    <h4 style="margin:0 0 5px 0;"><?php esc_html_e('Client :', 'workreap-invoices'); ?></h4>
+                     <p style="margin:0;">
+                        <strong><?php echo esc_html(trim($client_first_name . ' ' . $client_last_name)); ?></strong><br>
+                        <?php if ($client_company_name): ?>
+                            <?php echo esc_html($client_company_name); ?><br>
+                        <?php endif; ?>
+                        <?php echo $client_address_html; ?><br>
+                        <?php echo esc_html($client_email); ?>
+                    </p>
+                </td>
+            </tr>
+        </table>
+
+        <h4 style="margin:20px 0 10px 0; border-bottom: 1px solid #eee; padding-bottom: 5px;"><?php esc_html_e('Détails de la Transaction', 'workreap-invoices'); ?></h4>
+        <p><strong><?php esc_html_e('Freelance concerné :', 'workreap-invoices'); ?></strong> <?php echo esc_html($freelancer_name); ?></p>
+
+        <table style="width: 100%; margin-bottom: 30px; border-collapse: collapse;">
+            <thead>
+                <tr style="background-color: #f9f9f9;">
+                    <th style="text-align:left; padding: 8px; border: 1px solid #eee;"><?php esc_html_e('Description', 'workreap-invoices'); ?></th>
+                    <th style="text-align:right; padding: 8px; border: 1px solid #eee;"><?php esc_html_e('Montant', 'workreap-invoices'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #eee;"><?php printf(esc_html__('Commission de la plateforme pour la commande N° %s', 'workreap-invoices'), esc_html($order_number)); ?></td>
+                    <td style="text-align:right; padding: 8px; border: 1px solid #eee;"><?php echo $price_format_func($commission_amount); ?></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <?php if (!empty($payment_delay_text)): ?>
+            <p><strong><?php esc_html_e('Délai de paiement de la facture client associée:', 'workreap-invoices'); ?></strong> <?php echo esc_html($payment_delay_text); ?></p>
+        <?php endif; ?>
+
+        <?php if ($pdf_footer_text_config): ?>
+            <div class="nettmob-invoice-custom-footer" style="margin-top: 30px; border-top: 1px solid #eee; padding-top: 15px; font-size: 10px;">
+                <?php echo $pdf_footer_text_config; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+    <?php
+    return ob_get_clean();
+}
+
+
+function workreap_generate_commission_pdf($args, $output_mode = 'F') {
+    if (!class_exists('TCPDF') || !method_exists('TCPDF', 'AddPage')) {
+        error_log('Commission PDF Generation: TCPDF library not loaded.');
+        return false;
+    }
+
+    $order_id = !empty($args['order_id']) ? intval($args['order_id']) : 0;
+    if (empty($order_id)) {
+        error_log('Commission PDF Generation: Order ID is missing.');
+        return false;
+    }
+     $order = wc_get_order($order_id);
+    if (!$order) {
+        error_log("Commission PDF Generation: Could not retrieve order for ID {$order_id}.");
+        return false;
+    }
+
+    $nettmob_settings = nettmob_get_invoice_settings();
+    $nettmob_company_name = $nettmob_settings['nettmob_company_name'];
+
+    $commission_html = nettmob_get_commission_invoice_html($order_id, true); // true for PDF render (base64 images)
+
+    if (empty($commission_html)) {
+        error_log("Commission PDF Generation: Failed to generate HTML content for Order ID {$order_id}.");
+        return false;
+    }
+
+    $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
+
+    $pdf->SetCreator(esc_html($nettmob_company_name));
+    $pdf->SetAuthor(esc_html($nettmob_company_name));
+    $pdf->SetTitle(sprintf(esc_html__('Relevé de Commission %s - %s', 'workreap-invoices'), $order->get_order_number(), esc_html($nettmob_company_name)));
+    $pdf->SetSubject(sprintf(esc_html__('Relevé de commission pour la commande %s', 'workreap-invoices'), $order->get_order_number()));
+
+    $pdf->setPrintHeader(false);
+    $pdf->setPrintFooter(false);
+    $pdf->SetMargins(PDF_MARGIN_LEFT, 15, PDF_MARGIN_RIGHT);
+    $pdf->SetAutoPageBreak(TRUE, PDF_MARGIN_BOTTOM);
+    $pdf->setImageScale(PDF_IMAGE_SCALE_RATIO);
+    $pdf->AddPage();
+    $pdf->SetFont('helvetica', '', 10);
+    $pdf->writeHTML($commission_html, true, false, true, false, '');
+
+    $upload_dir = wp_upload_dir();
+    $invoice_dir = nettmob_get_invoice_upload_dir_path(); // Use helper
+     if (!file_exists($invoice_dir)) {
+        wp_mkdir_p($invoice_dir);
+        if (!file_exists($invoice_dir . '.htaccess')) {
+            @file_put_contents($invoice_dir . '.htaccess', "Options -Indexes");
+        }
+         if (!file_exists($invoice_dir . 'index.php')) {
+            @file_put_contents($invoice_dir . 'index.php', "<?php // Silence is golden");
+        }
+    }
+
+    $pdf_file_name = nettmob_get_commission_invoice_filename($order_id);
+    $pdf_file_path = $invoice_dir . $pdf_file_name;
+
+    try {
+        if ($output_mode === 'F') {
+            $pdf->Output($pdf_file_path, 'F');
+            return $pdf_file_path;
+        } elseif ($output_mode === 'D') {
+            $pdf->Output($pdf_file_name, 'D');
+            return true;
+        } elseif ($output_mode === 'I') {
+            $pdf->Output($pdf_file_name, 'I');
+            return true;
+        } else {
+            error_log("Commission PDF Generation: Invalid output mode {$output_mode}");
+            return false;
+        }
+    } catch (Exception $e) {
+        error_log("Commission PDF Generation TCPDF Exception: " . $e->getMessage());
+        return false;
+    }
+}
+
+// Admin Post Actions for PDF Generation
+
+add_action('admin_post_nettmob_generate_client_invoice', 'nettmob_handle_generate_client_invoice');
+function nettmob_handle_generate_client_invoice() {
+    // Check user capabilities
+    if (!current_user_can('manage_options')) {
+        wp_die(__('Vous n\'avez pas les permissions suffisantes pour effectuer cette action.', 'workreap-invoices'));
+    }
+
+    // Get order ID and verify nonce
+    $order_id = isset($_GET['order_id']) ? intval($_GET['order_id']) : 0;
+    $nonce = isset($_GET['_wpnonce_generate_client_invoice']) ? $_GET['_wpnonce_generate_client_invoice'] : '';
+
+    if (!$order_id || !wp_verify_nonce($nonce, 'nettmob_generate_client_invoice_nonce_' . $order_id)) {
+        wp_die(__('Lien invalide ou action non autorisée.', 'workreap-invoices'));
+    }
+
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        wp_die(__('Commande non trouvée.', 'workreap-invoices'));
+    }
+
+    // Determine freelancer ID for the invoice context (passed as 'identity' to generation function)
+    // This logic should mirror how 'identity' is determined if it's needed by workreap_freelancer_invoice_details_plugin
+    $freelancer_id = $order->get_meta('_freelancer_id', true);
+    if (!$freelancer_id) {
+        foreach ($order->get_items() as $item_id => $item) {
+            $product_id = $item->get_product_id();
+            if ($product_id) {
+                $freelancer_id_from_product = get_post_meta($product_id, '_freelancer_id', true);
+                if ($freelancer_id_from_product) {
+                    $freelancer_id = $freelancer_id_from_product;
+                    break;
+                }
+            }
+        }
+    }
+
+    $args = array(
+        'order_id' => $order_id,
+        'identity' => $freelancer_id // Pass freelancer_id as identity
+    );
+
+    $pdf_path = workreap_generate_invoice_pdf($args, 'F'); // Save to file
+
+    if ($pdf_path && file_exists($pdf_path)) {
+        // Redirect to the PDF file to open in browser or trigger download depending on browser settings
+        // Or, to force download:
+        // header('Content-Description: File Transfer');
+        // header('Content-Type: application/pdf');
+        // header('Content-Disposition: attachment; filename="'.basename($pdf_path).'"');
+        // header('Expires: 0');
+        // header('Cache-Control: must-revalidate');
+        // header('Pragma: public');
+        // header('Content-Length: ' . filesize($pdf_path));
+        // readfile($pdf_path);
+        // exit;
+
+        // For now, just redirect back to the list table with a success message
+        wp_redirect(add_query_arg(array('page' => 'nettmob-invoices', 'message' => 'client_invoice_generated', 'order_id' => $order_id), admin_url('admin.php')));
+        exit;
+    } else {
+        // Redirect back with an error message
+        wp_redirect(add_query_arg(array('page' => 'nettmob-invoices', 'error' => 'client_invoice_failed', 'order_id' => $order_id), admin_url('admin.php')));
+        exit;
+    }
+}
+
+add_action('admin_post_nettmob_generate_commission_invoice', 'nettmob_handle_generate_commission_invoice');
+function nettmob_handle_generate_commission_invoice() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('Vous n\'avez pas les permissions suffisantes pour effectuer cette action.', 'workreap-invoices'));
+    }
+
+    $order_id = isset($_GET['order_id']) ? intval($_GET['order_id']) : 0;
+    $nonce = isset($_GET['_wpnonce_generate_commission_invoice']) ? $_GET['_wpnonce_generate_commission_invoice'] : '';
+
+    if (!$order_id || !wp_verify_nonce($nonce, 'nettmob_generate_commission_invoice_nonce_' . $order_id)) {
+        wp_die(__('Lien invalide ou action non autorisée.', 'workreap-invoices'));
+    }
+
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        wp_die(__('Commande non trouvée.', 'workreap-invoices'));
+    }
+
+    // 'identity' might not be strictly needed for commission PDF if it's always from Nettmob's perspective
+    // but good to pass order_id
+    $args = array('order_id' => $order_id);
+
+    $pdf_path = workreap_generate_commission_pdf($args, 'F'); // Save to file
+
+    if ($pdf_path && file_exists($pdf_path)) {
+        wp_redirect(add_query_arg(array('page' => 'nettmob-invoices', 'message' => 'commission_invoice_generated', 'order_id' => $order_id), admin_url('admin.php')));
+        exit;
+    } else {
+        wp_redirect(add_query_arg(array('page' => 'nettmob-invoices', 'error' => 'commission_invoice_failed', 'order_id' => $order_id), admin_url('admin.php')));
+        exit;
+    }
+}
+
+// Display admin notices for generation success/failure
+add_action('admin_notices', 'nettmob_invoice_admin_notices');
+function nettmob_invoice_admin_notices() {
+    if (empty($_GET['page']) || $_GET['page'] !== 'nettmob-invoices' || empty($_GET['order_id'])) {
+        return;
+    }
+
+    $order_id = intval($_GET['order_id']);
+
+    if (!empty($_GET['message'])) {
+        $message_type = sanitize_key($_GET['message']);
+        $notice_message = '';
+        if ($message_type === 'client_invoice_generated') {
+            $notice_message = sprintf(__('Facture client pour la commande #%s générée avec succès.', 'workreap-invoices'), $order_id);
+        } elseif ($message_type === 'commission_invoice_generated') {
+            $notice_message = sprintf(__('Relevé de commission pour la commande #%s généré avec succès.', 'workreap-invoices'), $order_id);
+        }
+
+        if ($notice_message) {
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($notice_message) . '</p></div>';
+        }
+    } elseif (!empty($_GET['error'])) {
+        $error_type = sanitize_key($_GET['error']);
+        $error_message = '';
+        if ($error_type === 'client_invoice_failed') {
+            $error_message = sprintf(__('Erreur lors de la génération de la facture client pour la commande #%s.', 'workreap-invoices'), $order_id);
+        } elseif ($error_type === 'commission_invoice_failed') {
+            $error_message = sprintf(__('Erreur lors de la génération du relevé de commission pour la commande #%s.', 'workreap-invoices'), $order_id);
+        }
+
+        if ($error_message) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($error_message) . '</p></div>';
+        }
     }
 }
 
