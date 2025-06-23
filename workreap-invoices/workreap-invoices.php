@@ -640,5 +640,383 @@ function workreap_handle_invoice_pdf_download() {
 //    return false;
 // }
 
+// Nettmob Invoice Settings Page
+
+define('NETTMOO_INVOICE_SETTINGS_SLUG', 'nettmob-invoice-settings');
+define('NETTMOO_INVOICE_OPTION_GROUP', 'nettmob_invoice_options');
+define('NETTMOO_INVOICE_OPTION_NAME', 'nettmob_invoice_settings');
+
+// Function to get Nettmob settings, with defaults
+function nettmob_get_invoice_settings() {
+    $defaults = array(
+        'nettmob_company_name' => 'Nettmobfrance',
+        'nettmob_address' => '',
+        'nettmob_siret_tva' => '',
+        'nettmob_logo_id' => 0, // Attachment ID for the logo
+        'nettmob_vat_rate' => '20', // Default VAT rate
+        'nettmob_payment_delay' => '30 jours net',
+        'nettmob_pdf_header_text' => '',
+        'nettmob_pdf_footer_text' => '',
+        'nettmob_pdf_layout' => 'default' // For future layout selection
+    );
+    $settings = get_option(NETTMOO_INVOICE_OPTION_NAME, $defaults);
+    return wp_parse_args($settings, $defaults); // Ensure all keys are present
+}
+
+
+add_action('admin_menu', 'nettmob_invoice_add_admin_menu');
+add_action('admin_init', 'nettmob_invoice_settings_init');
+
+function nettmob_invoice_add_admin_menu() {
+    // Add top-level menu page for the main invoice list
+    add_menu_page(
+        __('Nettmob Factures', 'workreap-invoices'), // Page Title
+        __('Nettmob Facture', 'workreap-invoices'),  // Menu Title
+        'manage_options',                            // Capability (administrator)
+        'nettmob-invoices',                          // Menu Slug (main page)
+        'nettmob_invoice_list_page_html',            // Function to display the list page
+        'dashicons-text-page',                       // Icon
+        30                                           // Position
+    );
+
+    // Add submenu page for Settings
+    add_submenu_page(
+        'nettmob-invoices',                          // Parent Slug
+        __('Réglages - Nettmob Facture', 'workreap-invoices'), // Page Title
+        __('Réglages', 'workreap-invoices'),         // Menu Title
+        'manage_options',                            // Capability
+        NETTMOO_INVOICE_SETTINGS_SLUG,               // Menu Slug (settings page)
+        'nettmob_invoice_settings_page_html'         // Function to display the settings page
+    );
+}
+
+// Placeholder for the invoice list page HTML callback function
+// We will develop this function and the WP_List_Table class in the next steps.
+function nettmob_invoice_list_page_html() {
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e('Liste des Factures Nettmob', 'workreap-invoices'); ?></h1>
+        <form method="post">
+            <?php
+            // Ensure the class file is included
+            if (!class_exists('Nettmob_Invoice_List_Table')) {
+                require_once plugin_dir_path(__FILE__) . 'includes/class-nettmob-invoice-list-table.php';
+            }
+            $invoice_list_table = new Nettmob_Invoice_List_Table();
+            $invoice_list_table->prepare_items();
+            // Search box (optional, can be added to WP_List_Table class as well)
+            // $invoice_list_table->search_box(__('Rechercher Factures','workreap-invoices'), 'invoice_search');
+            $invoice_list_table->display();
+            ?>
+        </form>
+    </div>
+    <?php
+}
+
+
+function nettmob_invoice_settings_init() {
+    register_setting(NETTMOO_INVOICE_OPTION_GROUP, NETTMOO_INVOICE_OPTION_NAME, 'nettmob_invoice_settings_sanitize');
+
+    // Section: Nettmobfrance Information
+    add_settings_section(
+        'nettmob_invoice_section_nettmobinfo',
+        __('Informations de Nettmobfrance', 'workreap-invoices'),
+        'nettmob_invoice_section_nettmobinfo_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG
+    );
+
+    add_settings_field(
+        'nettmob_company_name',
+        __('Nom de l\'entreprise', 'workreap-invoices'),
+        'nettmob_invoice_field_text_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_nettmobinfo',
+        ['label_for' => 'nettmob_company_name', 'option_name' => NETTMOO_INVOICE_OPTION_NAME, 'default' => 'Nettmobfrance']
+    );
+    add_settings_field(
+        'nettmob_address',
+        __('Adresse complète', 'workreap-invoices'),
+        'nettmob_invoice_field_textarea_cb', // Changed to textarea for address
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_nettmobinfo',
+        ['label_for' => 'nettmob_address', 'option_name' => NETTMOO_INVOICE_OPTION_NAME]
+    );
+    add_settings_field(
+        'nettmob_siret_tva',
+        __('SIRET / N° TVA', 'workreap-invoices'),
+        'nettmob_invoice_field_text_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_nettmobinfo',
+        ['label_for' => 'nettmob_siret_tva', 'option_name' => NETTMOO_INVOICE_OPTION_NAME]
+    );
+     add_settings_field(
+        'nettmob_logo_id',
+        __('Logo de Nettmobfrance', 'workreap-invoices'),
+        'nettmob_invoice_field_logo_upload_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_nettmobinfo',
+        ['label_for' => 'nettmob_logo_id', 'option_name' => NETTMOO_INVOICE_OPTION_NAME]
+    );
+
+
+    // Section: Invoice Parameters
+    add_settings_section(
+        'nettmob_invoice_section_parameters',
+        __('Paramètres de facturation', 'workreap-invoices'),
+        'nettmob_invoice_section_parameters_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG
+    );
+    add_settings_field(
+        'nettmob_vat_rate',
+        __('Taux de TVA (%)', 'workreap-invoices'),
+        'nettmob_invoice_field_number_cb', // Changed to number
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_parameters',
+        ['label_for' => 'nettmob_vat_rate', 'option_name' => NETTMOO_INVOICE_OPTION_NAME, 'default' => '20', 'min' => '0', 'step' => '0.01']
+    );
+    add_settings_field(
+        'nettmob_payment_delay',
+        __('Délai de paiement par défaut', 'workreap-invoices'),
+        'nettmob_invoice_field_text_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_parameters',
+        ['label_for' => 'nettmob_payment_delay', 'option_name' => NETTMOO_INVOICE_OPTION_NAME, 'default' => '30 jours net']
+    );
+
+    // Section: PDF Customization
+    add_settings_section(
+        'nettmob_invoice_section_pdfcustom',
+        __('Personnalisation PDF', 'workreap-invoices'),
+        'nettmob_invoice_section_pdfcustom_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG
+    );
+    add_settings_field(
+        'nettmob_pdf_layout',
+        __('Mise en page PDF', 'workreap-invoices'),
+        'nettmob_invoice_field_select_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_pdfcustom',
+        [
+            'label_for' => 'nettmob_pdf_layout',
+            'option_name' => NETTMOO_INVOICE_OPTION_NAME,
+            'options' => ['default' => __('Défaut', 'workreap-invoices')], // Add more layouts later
+            'default' => 'default'
+        ]
+    );
+    add_settings_field(
+        'nettmob_pdf_header_text',
+        __('Texte d\'en-tête PDF personnalisé', 'workreap-invoices'),
+        'nettmob_invoice_field_textarea_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_pdfcustom',
+        ['label_for' => 'nettmob_pdf_header_text', 'option_name' => NETTMOO_INVOICE_OPTION_NAME]
+    );
+    add_settings_field(
+        'nettmob_pdf_footer_text',
+        __('Texte de pied de page PDF personnalisé', 'workreap-invoices'),
+        'nettmob_invoice_field_textarea_cb',
+        NETTMOO_INVOICE_SETTINGS_SLUG,
+        'nettmob_invoice_section_pdfcustom',
+        ['label_for' => 'nettmob_pdf_footer_text', 'option_name' => NETTMOO_INVOICE_OPTION_NAME]
+    );
+}
+
+// Section Callbacks
+function nettmob_invoice_section_nettmobinfo_cb($args) {
+    echo '<p>' . esc_html__('Configurez les informations de votre entreprise qui apparaîtront sur les factures.', 'workreap-invoices') . '</p>';
+}
+function nettmob_invoice_section_parameters_cb($args) {
+    echo '<p>' . esc_html__('Définissez les paramètres financiers pour les factures.', 'workreap-invoices') . '</p>';
+}
+function nettmob_invoice_section_pdfcustom_cb($args) {
+    echo '<p>' . esc_html__('Personnalisez l\'apparence des PDF générés.', 'workreap-invoices') . '</p>';
+}
+
+
+// Field Callbacks
+function nettmob_invoice_field_text_cb($args) {
+    $options = get_option($args['option_name'], []);
+    $value = isset($options[$args['label_for']]) ? $options[$args['label_for']] : (isset($args['default']) ? $args['default'] : '');
+    ?>
+    <input type="text" id="<?php echo esc_attr($args['label_for']); ?>"
+           name="<?php echo esc_attr($args['option_name'] . '[' . $args['label_for'] . ']'); ?>"
+           value="<?php echo esc_attr($value); ?>" class="regular-text">
+    <?php if (isset($args['description'])) : ?>
+        <p class="description"><?php echo esc_html($args['description']); ?></p>
+    <?php endif;
+}
+
+function nettmob_invoice_field_number_cb($args) {
+    $options = get_option($args['option_name'], []);
+    $value = isset($options[$args['label_for']]) ? $options[$args['label_for']] : (isset($args['default']) ? $args['default'] : '');
+    $min = isset($args['min']) ? $args['min'] : '';
+    $step = isset($args['step']) ? $args['step'] : '';
+    ?>
+    <input type="number" id="<?php echo esc_attr($args['label_for']); ?>"
+           name="<?php echo esc_attr($args['option_name'] . '[' . $args['label_for'] . ']'); ?>"
+           value="<?php echo esc_attr($value); ?>" class="small-text"
+           min="<?php echo esc_attr($min); ?>" step="<?php echo esc_attr($step); ?>">
+    <?php if (isset($args['description'])) : ?>
+        <p class="description"><?php echo esc_html($args['description']); ?></p>
+    <?php endif;
+}
+
+function nettmob_invoice_field_textarea_cb($args) {
+    $options = get_option($args['option_name'], []);
+    $value = isset($options[$args['label_for']]) ? $options[$args['label_for']] : (isset($args['default']) ? $args['default'] : '');
+    ?>
+    <textarea id="<?php echo esc_attr($args['label_for']); ?>"
+              name="<?php echo esc_attr($args['option_name'] . '[' . $args['label_for'] . ']'); ?>"
+              rows="5" class="large-text"><?php echo esc_textarea($value); ?></textarea>
+    <?php if (isset($args['description'])) : ?>
+        <p class="description"><?php echo esc_html($args['description']); ?></p>
+    <?php endif;
+}
+
+function nettmob_invoice_field_select_cb($args) {
+    $options = get_option($args['option_name'], []);
+    $value = isset($options[$args['label_for']]) ? $options[$args['label_for']] : (isset($args['default']) ? $args['default'] : '');
+    ?>
+    <select id="<?php echo esc_attr($args['label_for']); ?>"
+            name="<?php echo esc_attr($args['option_name'] . '[' . $args['label_for'] . ']'); ?>">
+        <?php foreach ($args['options'] as $val => $label) : ?>
+            <option value="<?php echo esc_attr($val); ?>" <?php selected($value, $val); ?>>
+                <?php echo esc_html($label); ?>
+            </option>
+        <?php endforeach; ?>
+    </select>
+    <?php if (isset($args['description'])) : ?>
+        <p class="description"><?php echo esc_html($args['description']); ?></p>
+    <?php endif;
+}
+
+function nettmob_invoice_field_logo_upload_cb($args) {
+    $options = get_option($args['option_name'], []);
+    $value = isset($options[$args['label_for']]) ? $options[$args['label_for']] : 0;
+    $image_src = $value ? wp_get_attachment_image_src($value, 'medium') : false;
+    $image_url = $image_src ? $image_src[0] : '';
+    ?>
+    <div class="nettmob-logo-uploader">
+        <input type="hidden" id="<?php echo esc_attr($args['label_for']); ?>" name="<?php echo esc_attr($args['option_name'] . '[' . $args['label_for'] . ']'); ?>" value="<?php echo esc_attr($value); ?>" />
+        <button type="button" class="button nettmob-upload-logo-button"><?php esc_html_e('Télécharger/Choisir un logo', 'workreap-invoices'); ?></button>
+        <button type="button" class="button nettmob-remove-logo-button" style="<?php echo $value ? '' : 'display:none;'; ?>"><?php esc_html_e('Retirer le logo', 'workreap-invoices'); ?></button>
+        <div class="nettmob-logo-preview" style="margin-top:10px;">
+            <?php if ($image_url) : ?>
+                <img src="<?php echo esc_url($image_url); ?>" style="max-width:200px; height:auto;" />
+            <?php endif; ?>
+        </div>
+    </div>
+    <script type="text/javascript">
+    jQuery(document).ready(function($){
+        // Ensure wp.media is loaded
+        if (typeof wp === 'undefined' || typeof wp.media === 'undefined') {
+            return;
+        }
+
+        var mediaUploader;
+        $('.nettmob-upload-logo-button').click(function(e) {
+            e.preventDefault();
+            var $button = $(this);
+            var $inputField = $button.siblings('input[type="hidden"]');
+            var $previewDiv = $button.siblings('.nettmob-logo-preview');
+            var $removeButton = $button.siblings('.nettmob-remove-logo-button');
+
+            if (mediaUploader) {
+                mediaUploader.open();
+                return;
+            }
+            mediaUploader = wp.media.frames.file_frame = wp.media({
+                title: '<?php esc_js_e('Choisir un logo', 'workreap-invoices'); ?>',
+                button: {
+                    text: '<?php esc_js_e('Utiliser ce logo', 'workreap-invoices'); ?>'
+                }, multiple: false });
+            mediaUploader.on('select', function() {
+                var attachment = mediaUploader.state().get('selection').first().toJSON();
+                $inputField.val(attachment.id);
+                $previewDiv.html('<img src="' + attachment.sizes.medium.url + '" style="max-width:200px; height:auto;" />');
+                $removeButton.show();
+            });
+            mediaUploader.open();
+        });
+        $('.nettmob-remove-logo-button').click(function(e){
+            e.preventDefault();
+            var $button = $(this);
+            var $inputField = $button.siblings('input[type="hidden"]');
+            var $previewDiv = $button.siblings('.nettmob-logo-preview');
+            $inputField.val('');
+            $previewDiv.html('');
+            $button.hide();
+        });
+    });
+    </script>
+    <?php
+}
+
+
+// HTML for the settings page
+function nettmob_invoice_settings_page_html() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    ?>
+    <div class="wrap">
+        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <form action="options.php" method="post">
+            <?php
+            settings_fields(NETTMOO_INVOICE_OPTION_GROUP);
+            do_settings_sections(NETTMOO_INVOICE_SETTINGS_SLUG);
+            submit_button(__('Enregistrer les modifications', 'workreap-invoices'));
+            ?>
+        </form>
+    </div>
+    <?php
+}
+
+// Sanitize callback
+function nettmob_invoice_settings_sanitize($input) {
+    $sanitized_input = array();
+    if (isset($input['nettmob_company_name'])) {
+        $sanitized_input['nettmob_company_name'] = sanitize_text_field($input['nettmob_company_name']);
+    }
+    if (isset($input['nettmob_address'])) {
+        $sanitized_input['nettmob_address'] = sanitize_textarea_field($input['nettmob_address']);
+    }
+    if (isset($input['nettmob_siret_tva'])) {
+        $sanitized_input['nettmob_siret_tva'] = sanitize_text_field($input['nettmob_siret_tva']);
+    }
+    if (isset($input['nettmob_logo_id'])) {
+        $sanitized_input['nettmob_logo_id'] = absint($input['nettmob_logo_id']);
+    }
+    if (isset($input['nettmob_vat_rate'])) {
+        $sanitized_input['nettmob_vat_rate'] = sanitize_text_field($input['nettmob_vat_rate']); // number, but sanitize as text then validate
+        // Could add more validation here to ensure it's a valid number/percentage
+    }
+    if (isset($input['nettmob_payment_delay'])) {
+        $sanitized_input['nettmob_payment_delay'] = sanitize_text_field($input['nettmob_payment_delay']);
+    }
+    if (isset($input['nettmob_pdf_header_text'])) {
+        $sanitized_input['nettmob_pdf_header_text'] = sanitize_textarea_field($input['nettmob_pdf_header_text']);
+    }
+    if (isset($input['nettmob_pdf_footer_text'])) {
+        $sanitized_input['nettmob_pdf_footer_text'] = sanitize_textarea_field($input['nettmob_pdf_footer_text']);
+    }
+    if (isset($input['nettmob_pdf_layout'])) {
+        $sanitized_input['nettmob_pdf_layout'] = sanitize_key($input['nettmob_pdf_layout']);
+    }
+
+    // Add more sanitization as needed for other fields
+
+    return $sanitized_input;
+}
+
+// Enqueue media uploader scripts for logo
+add_action('admin_enqueue_scripts', 'nettmob_invoice_enqueue_admin_scripts');
+function nettmob_invoice_enqueue_admin_scripts($hook_suffix) {
+    // Only load on our settings page. The hook_suffix for a top-level page is 'toplevel_page_PAGE_SLUG'
+    if ('toplevel_page_' . NETTMOO_INVOICE_SETTINGS_SLUG === $hook_suffix ||
+        (isset($_GET['page']) && $_GET['page'] === NETTMOO_INVOICE_SETTINGS_SLUG)) { // Check for submenu page too if structure changes
+        wp_enqueue_media();
+    }
+}
 
 ?>
